@@ -1,1 +1,23 @@
 .venv-win/
+.venv/
+.superpowers/
+.vscode/
+.pytest_cache/
+.docs/
+__pycache__/
+*.pyc
+
+# Local debug/scratch scripts (not part of the tools)
+/check_db.py
+/check_db2.py
+/check_db.ps1
+
+# Confidential business data & generated outputs (regenerated locally, never pushed)
+tps-pipeline/data/
+tps-pipeline/output/
+tps-pipeline/logs/
+tps-pipeline/config.yaml
+supplier-data-extractor/output/
+monthly-data-extractor/Data_*/
+graphify-out/
+/datav2.xlsx

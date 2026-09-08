@@ -1,0 +1,13 @@
+database:
+  host: localhost
+  port: 5432
+  name: tps_compliance
+  user: postgres
+  password: "changeme"
+
+paths:
+  data_dir: data
+  output_dir: output
+
+app:
+  report_month_offset: 1

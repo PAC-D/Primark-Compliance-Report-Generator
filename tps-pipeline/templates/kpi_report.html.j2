@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Inter', -apple-system, sans-serif; font-size: 12px; color: #1a1a1a; background: #e5e7eb; }
+    @page { size: A4 portrait; margin: 0; }
+    .page { width: 210mm; min-height: 297mm; background: white; margin: 0 auto 5px auto; display: flex; flex-direction: column; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    .page.page-break { page-break-before: always; }
+    .page-header { display: flex; justify-content: space-between; align-items: center; padding: 6px 14px; border-bottom: 4px solid #e31837; background: white; }
+    .brand-img-primark { height: 25px; width: auto; }
+    .brand-img-allport { height: 28px; width: auto; }
+    .page-content { flex: 1; padding: 20px 26px; }
+    .report-title-block { text-align: center; margin-bottom: 10px; }
+    .report-title-main { font-size: 22px; font-weight: 800; color: #1B2838; letter-spacing: -0.3px; }
+    .report-title-sub { font-size: 12px; font-weight: 600; color: #6B7280; text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
+    .report-period { font-size: 15px; color: #9ca3af; margin-top: 2px; }
+    .section-header { display: flex; align-items: center; gap: 10px; margin: 20px 0 10px; }
+    .section-title { font-size: 12px; font-weight: 700; color: #1B2838; text-transform: uppercase; letter-spacing: 0.5px; }
+    .section-line { flex: 1; height: 2px; background: #E5E7EB; }
+    table { width: 100%; border-collapse: collapse; font-size: 9px; margin-bottom: 10px; }
+    thead { background: #1B2838; color: white; }
+    th { font-weight: 600; text-transform: uppercase; font-size: 7px; letter-spacing: 0.3px; padding: 4px 6px; text-align: left; }
+    th.text-right, td.text-right { text-align: right; }
+    td { padding: 3px 6px; border-bottom: 1px solid #e5e7eb; color: #374151; }
+    tbody tr:nth-child(even) { background: #f9fafb; }
+    tr.total-row td { background: #f3f4f6; border-top: 2px solid #1B2838; font-weight: 600; }
+    .avg-blocks { display: flex; gap: 14px; margin-bottom: 10px; }
+    .avg-block { flex: 1; border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px; }
+    .avg-block-title { font-size: 9px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+    .avg-value { font-size: 22px; font-weight: 800; color: #1B2838; }
+    .avg-meta { font-size: 9px; color: #6b7280; margin-top: 2px; }
+    .month-cards { display: flex; gap: 14px; margin-bottom: 10px; }
+    .month-card { flex: 1; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; background: #f9fafb; }
+    .month-card-title { font-size: 9px; font-weight: 700; color: #1B2838; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; text-align: center; }
+    .month-card table { margin-bottom: 0; font-size: 7px; }
+    .month-card th { padding: 3px 4px; }
+    .month-card td { padding: 2px 4px; }
+    .page-bottom-space { flex: 1; min-height: 80px; }
+    .chart-box { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px; height: 260px; margin-bottom: 10px; }
+    .chart-box canvas { width: 100% !important; height: calc(100% - 24px) !important; }
+    .page-footer { display: flex; justify-content: space-between; padding: 6px 16px; border-top: 1px solid #e5e7eb; font-size: 8px; color: #6b7280; background: #f9fafb; }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="page-header">
+    <img class="brand-img-primark" src="{{ primark_logo }}" alt="Primark">
+    <img class="brand-img-allport" src="{{ allport_logo }}" alt="Allport Pacd">
+  </div>
+
+  <div class="page-content">
+    <div class="report-title-block">
+      <div class="report-title-main">Transit Packaging System (TPS) KPI Report</div>
+      <div class="report-period">{{ month_name }} {{ year }}</div>
+    </div>
+
+    {% if monthly_tables %}
+    <div class="section-header">
+      <span class="section-title">Monthly Summary</span>
+      <div class="section-line"></div>
+    </div>
+    <div class="month-cards">
+      {% for table in monthly_tables %}
+      <div class="month-card">
+        <div class="month-card-title">{{ table.month_label }}</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Country</th>
+              <th class="text-right">Suppliers</th>
+              <th class="text-right">Factories</th>
+              <th class="text-right">Lines</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in table.rows %}
+            <tr>
+              <td>{{ row.country }}</td>
+              <td class="text-right">{{ row.suppliers }}</td>
+              <td class="text-right">{{ row.factories }}</td>
+              <td class="text-right">{{ row.reflected_lines }}</td>
+            </tr>
+            {% endfor %}
+            <tr class="total-row">
+              <td>Total</td>
+              <td class="text-right">{{ table.totals.suppliers }}</td>
+              <td class="text-right">{{ table.totals.factories }}</td>
+              <td class="text-right">{{ table.totals.reflected_lines }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="section-header">
+      <span class="section-title">Individual Performance</span>
+      <div class="section-line"></div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Approved By</th>
+          {% for label in performance.month_labels %}
+          <th class="text-right">{{ label }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in performance.rows %}
+        <tr>
+          <td>{{ row.approved_by }}</td>
+          {% for count in row.lines %}
+          <td class="text-right">{{ count }}</td>
+          {% endfor %}
+        </tr>
+        {% else %}
+        <tr><td colspan="{{ 1 + performance.month_labels|length }}">No approved-by data available.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div class="section-header">
+      <span class="section-title">Average Lines Processed Per Day — {{ month_name }} {{ year }}</span>
+      <div class="section-line"></div>
+    </div>
+    <div class="avg-blocks">
+      <div class="avg-block">
+        <div class="avg-block-title">BD Region</div>
+        <div class="avg-value">{{ avg_per_day.bd.avg }}</div>
+        <div class="avg-meta">{{ avg_per_day.bd.lines }} lines / {{ avg_per_day.bd.working_days }} working days</div>
+      </div>
+      <div class="avg-block">
+        <div class="avg-block-title">CN Region</div>
+        <div class="avg-value">{{ avg_per_day.cn.avg }}</div>
+        <div class="avg-meta">{{ avg_per_day.cn.lines }} lines / {{ avg_per_day.cn.working_days }} working days</div>
+      </div>
+    </div>
+
+    <div class="page-bottom-space"></div>
+  </div>
+
+  <div class="page-footer">
+    <span>Generated: {{ release_date }}</span>
+    <span>TPS KPI Report</span>
+  </div>
+</div>
+
+<div class="page page-break">
+  <div class="page-header">
+    <img class="brand-img-primark" src="{{ primark_logo }}" alt="Primark">
+    <img class="brand-img-allport" src="{{ allport_logo }}" alt="Allport Pacd">
+  </div>
+
+  <div class="page-content">
+    <div class="section-header">
+      <span class="section-title">12-Month Trend</span>
+      <div class="section-line"></div>
+    </div>
+    <div class="chart-box">
+      <div class="chart-box-title">Suppliers & Factories (Last 12 Months)</div>
+      <canvas id="chartTrend"></canvas>
+    </div>
+    <div class="chart-box">
+      <div class="chart-box-title">Reflected Lines — BD & CN Regions</div>
+      <canvas id="chartRegion"></canvas>
+    </div>
+  </div>
+
+  <div class="page-footer">
+    <span>Generated: {{ release_date }}</span>
+    <span>TPS KPI Report</span>
+  </div>
+</div>
+
+<script>
+window.addEventListener('load', function() {
+  const chartDefaults = {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: false,
+    plugins: { legend: { display: true, labels: { font: { size: 9, family: 'Arial' } } } },
+    elements: { point: { radius: 3 } },
+    scales: {
+      x: { ticks: { font: { size: 9, family: 'Arial' }, color: '#374151', maxRotation: 0, autoSkip: true, maxTicksLimit: 8 }, grid: { display: false } },
+      y: { ticks: { font: { size: 9, family: 'Arial' }, color: '#374151' }, grid: { color: '#f3f4f6' }, beginAtZero: true }
+    }
+  };
+
+  new Chart(document.getElementById('chartTrend'), {
+    type: 'line',
+    data: {
+      labels: {{ trend.labels|tojson }},
+      datasets: [
+        { label: 'Suppliers', data: {{ trend.suppliers }}, borderColor: '#4A90D9', backgroundColor: 'transparent', tension: 0.4, fill: false },
+        { label: 'Factories', data: {{ trend.factories }}, borderColor: '#e31837', backgroundColor: 'transparent', tension: 0.4, fill: false }
+      ]
+    },
+    options: chartDefaults
+  });
+
+  new Chart(document.getElementById('chartRegion'), {
+    type: 'line',
+    data: {
+      labels: {{ region_lines.labels|tojson }},
+      datasets: [
+        { label: 'BD Region', data: {{ region_lines.bd }}, borderColor: '#059669', backgroundColor: 'transparent', tension: 0.4, fill: false },
+        { label: 'CN Region', data: {{ region_lines.cn }}, borderColor: '#ea580c', backgroundColor: 'transparent', tension: 0.4, fill: false }
+      ]
+    },
+    options: chartDefaults
+  });
+});
+</script>
+</body>
+</html>
