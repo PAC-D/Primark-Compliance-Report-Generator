@@ -1,0 +1,73 @@
+columns:
+  - db_col: origin_country
+    label: "Origin Country"
+    align: left
+
+  - db_col: origin_port
+    label: "Origin Port"
+    align: left
+
+  - db_col: factory
+    label: "Factory"
+    align: left
+
+  - db_col: destination_po
+    label: "Destination PO"
+    align: left
+
+  - db_col: kimball
+    label: "Kimball"
+    align: left
+
+  - db_col: description
+    label: "Description"
+    align: left
+
+  - db_col: colour_code
+    label: "Colour Code"
+    align: left
+
+  - db_col: size
+    label: "Size"
+    align: left
+
+  - db_col: po_qty
+    label: "PO Qty"
+    align: right
+
+  - db_col: handover_date
+    label: "Handover Date"
+    align: left
+
+  - db_col: units_per_carton
+    label: "Units per Carton"
+    align: right
+
+  - db_col: dimensions
+    label: "Dimensions (L×W×H)"
+    align: left
+    format: "carton_length/width/height"
+
+  - db_col: packaging_supplier
+    label: "Packaging Supplier"
+    align: left
+
+  - db_col: updated_date
+    label: "Updated Date"
+    align: left
+
+  - db_col: updated_by
+    label: "Updated By"
+    align: left
+
+  - db_col: approved_date
+    label: "Approved Date"
+    align: left
+
+  - db_col: packaging_status
+    label: "Packaging Status"
+    align: center
+
+  - db_col: compliance_status
+    label: "Compliance Status"
+    align: center

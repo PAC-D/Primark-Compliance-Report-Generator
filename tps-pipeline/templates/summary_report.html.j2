@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 12px;
+      line-height: 1.4;
+      color: #1a1a1a;
+      background: #e5e7eb;
+    }
+
+    @page {
+      size: A4 portrait;
+      margin: 0;
+    }
+
+    .page {
+      width: 210mm;
+      height: 297mm;
+      overflow: hidden;
+      background: white;
+      margin: 0 auto 10px auto;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+
+    .page-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 16px;
+      border-bottom: 4px solid #1B2838;
+      background: white;
+      flex-shrink: 0;
+    }
+
+    .brand-img-primark {
+      height: 25px;
+      width: auto;
+      object-fit: contain;
+    }
+
+    .brand-img-allport {
+      height: 28px;
+      width: auto;
+      object-fit: contain;
+    }
+
+    .page-content {
+      flex: 1;
+      padding: 12px 18px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .page-footer {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 16px;
+      border-top: 1px solid #e5e7eb;
+      font-size: 8px;
+      color: #6b7280;
+      background: #f9fafb;
+      flex-shrink: 0;
+    }
+
+    .report-title-block {
+      text-align: center;
+      margin-bottom: 12px;
+      flex-shrink: 0;
+    }
+
+    .report-title-main {
+      font-size: 24px;
+      font-weight: 800;
+      color: #1B2838;
+      letter-spacing: -0.5px;
+    }
+
+    .report-title-sub {
+      font-size: 13px;
+      font-weight: 600;
+      color: #6B7280;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-top: 2px;
+    }
+
+    .report-period {
+      font-size: 14px;
+      color: #9ca3af;
+      margin-top: 2px;
+    }
+
+    .top-section {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-bottom: 12px;
+      flex-shrink: 0;
+    }
+
+    .section-card {
+      background: white;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 10px;
+    }
+
+    .section-title {
+      font-size: 10px;
+      font-weight: 700;
+      color: #1B2838;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 9px;
+      margin-bottom: 0;
+    }
+
+    thead {
+      background: #1B2838;
+      color: white;
+    }
+
+    th {
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 7px;
+      letter-spacing: 0.3px;
+      padding: 6px 8px;
+      text-align: left;
+    }
+
+    th.text-right, td.text-right { text-align: right; }
+
+    td {
+      padding: 5px 8px;
+      border-bottom: 1px solid #e5e7eb;
+      color: #374151;
+    }
+
+    tbody tr:nth-child(even) { background: #f9fafb; }
+
+    .full-width-section {
+      margin-bottom: 12px;
+      flex-shrink: 0;
+    }
+
+    .working-days-block {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 10px;
+      padding: 8px;
+      background: #f0f9ff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+    }
+
+    .working-days-label {
+      font-size: 10px;
+      font-weight: 700;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .working-days-value {
+      font-size: 14px;
+      font-weight: 800;
+      color: #1B2838;
+    }
+
+    .top-suppliers-table {
+      margin-top: 8px;
+    }
+
+    .top-suppliers-table table {
+      font-size: 9px;
+    }
+
+    .top-suppliers-table th {
+      padding: 5px 8px;
+      font-size: 8px;
+      position: sticky;
+      top: 0;
+      background: #1B2838;
+    }
+
+    .top-suppliers-table td {
+      padding: 4px 8px;
+      font-size: 9px;
+    }
+
+    .top-suppliers-table tbody tr:nth-child(even) {
+      background: #f9fafb;
+    }
+
+    .top-suppliers-table .total-row {
+      background: #e8f4fd !important;
+      font-weight: 700;
+    }
+
+    .continued-note {
+      text-align: center;
+      font-size: 8px;
+      color: #9ca3af;
+      font-style: italic;
+      margin-top: 6px;
+    }
+
+    .chart-container {
+      background: white;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 10px;
+    }
+
+    .chart-title {
+      font-size: 10px;
+      font-weight: 700;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+      text-align: center;
+    }
+
+    .chart-canvas-wrapper {
+      height: 300px;
+    }
+
+    .chart-canvas-wrapper canvas {
+      width: 100% !important;
+      height: 100% !important;
+      image-rendering: -webkit-optimize-contrast !important;
+      image-rendering: crisp-edges !important;
+    }
+  </style>
+</head>
+<body>
+
+<div class="page">
+  <div class="page-header">
+    <img class="brand-img-primark" src="{{ primark_logo }}" alt="Primark">
+    <img class="brand-img-allport" src="{{ allport_logo }}" alt="Allport">
+  </div>
+
+  <div class="page-content">
+    <div class="report-title-block">
+      <div class="report-title-main">TPS Compliance Report</div>
+      <div class="report-title-sub">Summary for {{ month_name }} {{ year }}</div>
+    </div>
+
+    <div class="top-section">
+      <div class="section-card">
+        <div class="section-title">Sources</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th class="text-right">Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Total Suppliers</td>
+              <td class="text-right">{{ sources.total_suppliers }}</td>
+            </tr>
+            <tr>
+              <td>Total Factories</td>
+              <td class="text-right">{{ sources.total_factories }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="section-card">
+        <div class="section-title">Compliance Score</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Country</th>
+              <th class="text-right">Compliance Rate (%)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in compliance_data %}
+            <tr>
+              <td>{{ item.country }}</td>
+              <td class="text-right">{{ item.compliance_rate }}%</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="full-width-section">
+      <div class="section-card">
+        <div class="section-title">Volume (Compliant Only)</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Country</th>
+              <th class="text-right">Carton Qty</th>
+              <th class="text-right">Product Qty</th>
+              <th class="text-right">Unit/CBM</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in volume_data %}
+            <tr>
+              <td>{{ item.country }}</td>
+              <td class="text-right">{{ item.carton_qty }}</td>
+              <td class="text-right">{{ item.product_qty }}</td>
+              <td class="text-right">{{ item.unit_cbm|int }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="full-width-section">
+      <div class="chart-container">
+        <div class="chart-title">Trend Analysis</div>
+        <div class="chart-canvas-wrapper">
+          <canvas id="trendChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="page-footer">
+    <span>Generated: {{ release_date }}</span>
+    <span>Page 1</span>
+  </div>
+</div>
+
+<!-- PAGE 2: Line Details -->
+<div class="page page-break">
+  <div class="page-header">
+    <img class="brand-img-primark" src="{{ primark_logo }}" alt="Primark">
+    <img class="brand-img-allport" src="{{ allport_logo }}" alt="Allport">
+  </div>
+
+  <div class="page-content">
+    <div class="section-header">
+      <span class="section-title">Line Details</span>
+      <div class="section-line"></div>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Origin Country</th>
+          <th class="text-right">Destination PO</th>
+          <th class="text-right">Reflected Lines</th>
+          <th class="text-right">Pending</th>
+          <th class="text-right">Approved</th>
+          <th class="text-right">Rejected</th>
+          <th class="text-right">Escalated</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in line_details %}
+        <tr>
+          <td>{{ item.country }}</td>
+          <td class="text-right">{{ item.dest_po_count }}</td>
+          <td class="text-right">{{ item.reflected_lines }}</td>
+          <td class="text-right text-warning">{{ item.pending }}</td>
+          <td class="text-right text-success">{{ item.approved }}</td>
+          <td class="text-right text-danger">{{ item.rejected }}</td>
+          <td class="text-right">{{ item.escalated }}</td>
+        </tr>
+        {% endfor %}
+        <tr class="total-row">
+          <td><strong>Total</strong></td>
+          <td class="text-right"><strong>{{ line_totals.dest_po_count }}</strong></td>
+          <td class="text-right"><strong>{{ line_totals.reflected_lines }}</strong></td>
+          <td class="text-right text-warning"><strong>{{ line_totals.pending }}</strong></td>
+          <td class="text-right text-success"><strong>{{ line_totals.approved }}</strong></td>
+          <td class="text-right text-danger"><strong>{{ line_totals.rejected }}</strong></td>
+          <td class="text-right"><strong>{{ line_totals.escalated }}</strong></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="working-days-block">
+      <span class="working-days-label">Working Days</span>
+      <span class="working-days-value">{{ working_days }}</span>
+    </div>
+  </div>
+
+  <div class="page-footer">
+    <span>Generated: {{ release_date }}</span>
+    <span>Page 2</span>
+  </div>
+</div>
+
+<!-- PAGE 3: Top Performing Suppliers -->
+{% if top_suppliers %}
+<div class="page page-break">
+  <div class="page-header">
+    <img class="brand-img-primark" src="{{ primark_logo }}" alt="Primark">
+    <img class="brand-img-allport" src="{{ allport_logo }}" alt="Allport">
+  </div>
+
+  <div class="page-content">
+    <div class="section-header">
+      <span class="section-title">Top Performing Suppliers (Compliance Rate >= 95%)</span>
+      <div class="section-line"></div>
+    </div>
+
+    <div class="top-suppliers-table">
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 6%;">Sl</th>
+            <th style="width: 26%;">Supplier Name</th>
+            <th style="width: 22%;">Origin Countries</th>
+            <th style="width: 8%;">No of Factory</th>
+            <th style="width: 10%;">Destination PO</th>
+            <th style="width: 12%;">Reflected Lines</th>
+            <th style="width: 12%;">Compliance Rate</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for supplier in top_suppliers %}
+          {% if loop.index <= 36 %}
+          <tr>
+            <td>{{ supplier.sl }}</td>
+            <td>{{ supplier.supplier }}</td>
+            <td>{{ supplier.origin_countries }}</td>
+            <td class="text-right">{{ supplier.factory_count }}</td>
+            <td class="text-right">{{ supplier.dest_po_count }}</td>
+            <td class="text-right">{{ supplier.reflected_lines }}</td>
+            <td class="text-right text-success">{{ supplier.compliance_rate }}%</td>
+          </tr>
+          {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if top_suppliers|length > 36 %}
+    <div class="continued-note">Continued on next page...</div>
+    {% endif %}
+  </div>
+
+  <div class="page-footer">
+    <span>Generated: {{ release_date }}</span>
+    <span>Page 3</span>
+  </div>
+</div>
+
+{% if top_suppliers|length > 36 %}
+<div class="page-break"></div>
+
+<div class="page">
+  <div class="page-header">
+    <img class="brand-img-primark" src="{{ primark_logo }}" alt="Primark">
+    <img class="brand-img-allport" src="{{ allport_logo }}" alt="Allport">
+  </div>
+
+  <div class="page-content">
+    <div class="section-header">
+      <span class="section-title">Top Performing Suppliers (Continued)</span>
+      <div class="section-line"></div>
+    </div>
+
+    <div class="top-suppliers-table">
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 6%;">Sl</th>
+            <th style="width: 26%;">Supplier Name</th>
+            <th style="width: 22%;">Origin Countries</th>
+            <th style="width: 8%;">No of Factory</th>
+            <th style="width: 10%;">Destination PO</th>
+            <th style="width: 12%;">Reflected Lines</th>
+            <th style="width: 12%;">Compliance Rate</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for supplier in top_suppliers %}
+          {% if loop.index > 36 %}
+          <tr>
+            <td>{{ supplier.sl }}</td>
+            <td>{{ supplier.supplier }}</td>
+            <td>{{ supplier.origin_countries }}</td>
+            <td class="text-right">{{ supplier.factory_count }}</td>
+            <td class="text-right">{{ supplier.dest_po_count }}</td>
+            <td class="text-right">{{ supplier.reflected_lines }}</td>
+            <td class="text-right text-success">{{ supplier.compliance_rate }}%</td>
+          </tr>
+          {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="page-footer">
+    <span>Generated: {{ release_date }}</span>
+    <span>Page 4</span>
+  </div>
+</div>
+{% endif %}
+{% endif %}
+
+<script>
+  window.addEventListener('load', function() {
+    window.devicePixelRatio = 3;
+    requestAnimationFrame(function() {
+    const chartColors = ['#1B2838', '#4A90D9', '#16a34a', '#ea580c', '#dc2626', '#7C3AED', '#DB2777', '#059669', '#F59E0B', '#6B7280'];
+
+    const chartDefaults = {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      plugins: { legend: { display: true, position: 'bottom', labels: { boxWidth: 12, padding: 8, font: { size: 9 } } } },
+      scales: {
+        x: {
+          ticks: { font: { size: 9, family: 'Arial' }, color: '#374151', maxRotation: 0, autoSkip: true, maxTicksLimit: 12 },
+          grid: { display: false }
+        },
+        y: {
+          ticks: { font: { size: 9, family: 'Arial' }, color: '#374151' },
+          grid: { color: '#f3f4f6' },
+          beginAtZero: true
+        }
+      }
+    };
+
+    new Chart(document.getElementById('trendChart'), {
+      type: 'bar',
+      data: {
+        labels: {{ chart_labels|tojson }},
+        datasets: [
+          {% for country in country_order %}
+          {
+            label: '{{ country }}',
+            data: {{ country_data[country]|tojson }},
+            backgroundColor: chartColors[{{ loop.index0 }} % chartColors.length],
+            borderWidth: 0,
+            borderRadius: 2
+          },
+          {% endfor %}
+        ]
+      },
+      options: chartDefaults
+    });
+    });
+  });
+</script>
+
+</body>
+</html>
