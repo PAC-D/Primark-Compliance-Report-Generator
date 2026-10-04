@@ -12,7 +12,7 @@ from tps.metrics.kpi import (
     get_kpi_region_reflected_lines,
     get_kpi_supplier_factory_trend,
 )
-from tps.metrics.supplier import get_report_month
+from tps.common import get_report_month
 
 
 def _load_logo(name: str) -> str:

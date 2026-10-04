@@ -23,8 +23,8 @@ from openpyxl.worksheet.table import Table, TableColumn, TableStyleInfo
 
 from tps.reports._suppliers_below import build_follow_up_required_sheet as _build_suppliers_below_threshold_sheet
 from tps.reports._supplier_trend import _build_yearly_performance_sheet
+from tps.common import get_report_month
 from tps.metrics.supplier import (
-    get_report_month,
     get_all_suppliers_24month_trend,
     get_summary_sources,
     get_summary_country_compliance,

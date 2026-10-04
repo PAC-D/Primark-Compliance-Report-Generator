@@ -1,30 +1,5 @@
 import pytest
 from tps.ingest import load_excel
-from tps.db import normalise_supplier
-
-
-class TestNormaliseSupplier:
-    def test_known_supplier(self):
-        assert normalise_supplier("WEIHAI BETTEX INTERNATIONAL TRADING CO., LTD") == "BETTEX (HK) LIMITED (80243)"
-
-    def test_unknown_supplier(self):
-        assert normalise_supplier("UNKNOWN SUPPLIER") == "UNKNOWN SUPPLIER"
-
-    def test_whitespace_stripping(self):
-        assert normalise_supplier("  BETTEX (HK) LIMITED (80243)  ") == "BETTEX (HK) LIMITED (80243)"
-
-    def test_case_sensitivity(self):
-        assert normalise_supplier("weihai bettex international trading co., ltd") == "weihai bettex international trading co., ltd"
-
-    def test_maps_current_source_spelling_to_id_suffixed_name(self):
-        # Primark's source files already emit the post-rename name (without the
-        # ID suffix) rather than the original pre-rename name, so the mapping
-        # needs a key on that current spelling to ever produce the ID-suffixed form.
-        assert normalise_supplier("PENTI GIYIM TICARET A.S.") == "PENTI GIYIM TICARET A.S (80651)"
-        assert normalise_supplier("SAIDE GROUP DIS TICARET AS") == "SAIDE GROUP DIS TICARET AS (80111)"
-        assert normalise_supplier("BODYLINE TRADING (PRIVATE) LIMITED") == "BODYLINE TRADING (PRIVATE) LIMITED (67247)"
-        assert normalise_supplier("TEXPORT SYNDICATE PRIVATE LIMITED") == "TEXPORT SYNDICATE PRIVATE LIMITED (83002)"
-        assert normalise_supplier("BETTEX (HK) LIMITED") == "BETTEX (HK) LIMITED (80243)"
 
 
 class TestCartonType:

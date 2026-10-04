@@ -13,8 +13,7 @@ import re
 import sys
 
 from tps.config import DATA_DIR, OUTPUT_DIR
-from tps.safe_filename import safe_filename
-from tps.supplier_normalisation import normalise_supplier
+from tps.common import normalise_supplier, safe_filename
 
 CN_REGION_COUNTRIES = {"China", "Myanmar", "Cambodia", "Vietnam", "VietNam", "Indonesia"}
 

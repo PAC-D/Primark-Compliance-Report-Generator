@@ -4,7 +4,6 @@ from sqlalchemy.orm import Session, sessionmaker
 from typing import List, Dict
 
 from tps.config import CONFIG
-from tps.supplier_normalisation import SUPPLIER_NORMALISATION, normalise_supplier
 
 _db_config = CONFIG["database"]
 

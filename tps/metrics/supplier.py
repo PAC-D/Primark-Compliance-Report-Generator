@@ -3,26 +3,8 @@ from datetime import date
 from sqlalchemy import text, func
 from sqlalchemy.orm import Session
 
-from tps.config import REPORT_MONTH_OFFSET as _report_month_offset
+from tps.common import get_report_month, month_label, next_month_start
 from tps.db import get_session
-
-
-def get_report_month(year: int | None = None, month: int | None = None) -> date:
-    if year is not None and month is not None:
-        return date(year, month, 1)
-    today = date.today()
-    month = today.month - _report_month_offset
-    year = today.year
-    if month <= 0:
-        month += 12
-        year -= 1
-    return date(year, month, 1)
-
-
-def get_last_day_of_month(d: date) -> date:
-    if d.month == 12:
-        return date(d.year + 1, 1, 1)
-    return date(d.year, d.month + 1, 1)
 
 
 def _get_chart_month_range(supplier: str, report_month: date) -> list[date]:
@@ -70,7 +52,7 @@ def get_compliance_rate(supplier: str, year: int, month: int) -> float:
     session = get_session()
     try:
         start = date(year, month, 1)
-        end = get_last_day_of_month(start)
+        end = next_month_start(start)
         query = text("""
             SELECT
                 COUNT(*) FILTER (WHERE compliance_status = 'Compliant') AS compliant,
@@ -104,7 +86,7 @@ def get_monthly_compliance_scores(supplier: str, report_month: date | None = Non
         scores = []
         labels = []
         for month_start in months_list:
-            month_end = get_last_day_of_month(month_start)
+            month_end = next_month_start(month_start)
             row = session.execute(text("""
                 SELECT
                     COUNT(*) FILTER (WHERE compliance_status = 'Compliant') AS compliant,
@@ -117,7 +99,7 @@ def get_monthly_compliance_scores(supplier: str, report_month: date | None = Non
             else:
                 score = round(row.compliant / row.total * 100, 1)
             scores.append(score)
-            labels.append(f"{calendar.month_abbr[month_start.month]} '{str(month_start.year)[-2:]}")
+            labels.append(month_label(month_start))
 
         return (scores, labels)
     finally:
@@ -140,7 +122,7 @@ def get_standard_carton_scores(supplier: str, report_month: date | None = None) 
         scores = []
         labels = []
         for month_start in months_list:
-            month_end = get_last_day_of_month(month_start)
+            month_end = next_month_start(month_start)
             row = session.execute(text("""
                 SELECT
                     COUNT(*) FILTER (WHERE packaging_status = 'Approved') AS standard,
@@ -150,7 +132,7 @@ def get_standard_carton_scores(supplier: str, report_month: date | None = None) 
             """), {"supplier": supplier, "start": month_start, "end": month_end}).fetchone()
             score = round(row.standard / row.total * 100, 1) if row.total > 0 else 0.0
             scores.append(score)
-            labels.append(f"{calendar.month_abbr[month_start.month]} '{str(month_start.year)[-2:]}")
+            labels.append(month_label(month_start))
 
         return (scores, labels)
     finally:
@@ -173,7 +155,7 @@ def get_density_scores(supplier: str, report_month: date | None = None) -> tuple
         scores = []
         labels = []
         for month_start in months_list:
-            month_end = get_last_day_of_month(month_start)
+            month_end = next_month_start(month_start)
             row = session.execute(text("""
                 SELECT AVG(density) FROM raw_data
                 WHERE supplier = :supplier AND handover_date >= :start AND handover_date < :end
@@ -181,7 +163,7 @@ def get_density_scores(supplier: str, report_month: date | None = None) -> tuple
             """), {"supplier": supplier, "start": month_start, "end": month_end}).fetchone()
             score = round(float(row[0]), 1) if row[0] is not None else 0.0
             scores.append(score)
-            labels.append(f"{calendar.month_abbr[month_start.month]} '{str(month_start.year)[-2:]}")
+            labels.append(month_label(month_start))
 
         return (scores, labels)
     finally:
@@ -204,14 +186,14 @@ def get_volume_scores(supplier: str, report_month: date | None = None) -> tuple[
         scores = []
         labels = []
         for month_start in months_list:
-            month_end = get_last_day_of_month(month_start)
+            month_end = next_month_start(month_start)
             row = session.execute(text("""
                 SELECT COALESCE(SUM(po_qty), 0) FROM raw_data
                 WHERE supplier = :supplier AND handover_date >= :start AND handover_date < :end
             """), {"supplier": supplier, "start": month_start, "end": month_end}).fetchone()
             score = int(row[0]) if row[0] is not None else 0
             scores.append(score)
-            labels.append(f"{calendar.month_abbr[month_start.month]} '{str(month_start.year)[-2:]}")
+            labels.append(month_label(month_start))
 
         return (scores, labels)
     finally:
@@ -223,7 +205,7 @@ def get_local_rankings(supplier: str, report_month: date | None = None) -> list[
         report_month = get_report_month()
     session = get_session()
     try:
-        end = get_last_day_of_month(report_month)
+        end = next_month_start(report_month)
 
         origin_query = text("""
             SELECT DISTINCT origin_country
@@ -318,7 +300,7 @@ def get_global_ranking(supplier: str, report_month: date | None = None) -> tuple
     try:
         if report_month is None:
             report_month = get_report_month()
-        end = get_last_day_of_month(report_month)
+        end = next_month_start(report_month)
         query = text("""
             WITH rates AS (
                 SELECT
@@ -378,7 +360,7 @@ def get_supplier_kpis(supplier: str, report_month: date | None = None) -> dict:
     try:
         if report_month is None:
             report_month = get_report_month()
-        end = get_last_day_of_month(report_month)
+        end = next_month_start(report_month)
         query = text("""
             SELECT
                 string_agg(DISTINCT origin_country, ', ' ORDER BY origin_country) AS origin_countries,
@@ -417,7 +399,7 @@ def get_associated_factories(supplier: str, report_month: date | None = None) ->
         report_month = get_report_month()
     session = get_session()
     try:
-        end = get_last_day_of_month(report_month)
+        end = next_month_start(report_month)
         query = text("""
             SELECT
                 factory,
@@ -448,7 +430,7 @@ def get_line_details(supplier: str, report_month: date | None = None) -> tuple[l
         report_month = get_report_month()
     session = get_session()
     try:
-        end = get_last_day_of_month(report_month)
+        end = next_month_start(report_month)
         query = text("""
             SELECT
                 factory,
@@ -494,7 +476,7 @@ def get_compliance_data(supplier: str, report_month: date | None = None) -> list
         report_month = get_report_month()
     session = get_session()
     try:
-        end = get_last_day_of_month(report_month)
+        end = next_month_start(report_month)
         query = text("""
             SELECT
                 factory,
@@ -579,7 +561,7 @@ def get_transactions(supplier: str, report_month: date | None = None) -> list[di
     try:
         if report_month is None:
             report_month = get_report_month()
-        end = get_last_day_of_month(report_month)
+        end = next_month_start(report_month)
         query = text("""
             SELECT
                 area, sub_area, origin_country, origin_port,
@@ -642,7 +624,7 @@ def get_summary_sources(report_month: date) -> dict:
     """Returns total suppliers and factories for the report month."""
     session = get_session()
     try:
-        end = get_last_day_of_month(report_month)
+        end = next_month_start(report_month)
         query = text("""
             SELECT
                 COUNT(DISTINCT supplier) AS total_suppliers,
@@ -663,7 +645,7 @@ def get_summary_country_compliance(report_month: date) -> list[dict]:
     """Returns compliance rates by country, sorted by country name."""
     session = get_session()
     try:
-        end = get_last_day_of_month(report_month)
+        end = next_month_start(report_month)
         query = text("""
             SELECT
                 origin_country AS country,
@@ -686,7 +668,7 @@ def get_summary_country_volume(report_month: date) -> list[dict]:
     """Returns volume data by country: carton_qty, product_qty, unit_cbm (compliant rows only)."""
     session = get_session()
     try:
-        end = get_last_day_of_month(report_month)
+        end = next_month_start(report_month)
 
         qry = text("""
             SELECT
@@ -743,7 +725,7 @@ def get_summary_country_monthly_trend(report_month: date) -> tuple[dict, list[st
         country_order = []
 
         for month_start in months_list:
-            month_end = get_last_day_of_month(month_start)
+            month_end = next_month_start(month_start)
             rows = session.execute(text("""
                 SELECT
                     origin_country AS country,
@@ -768,7 +750,7 @@ def get_summary_country_monthly_trend(report_month: date) -> tuple[dict, list[st
                 country_data[country].insert(0, 0.0)
 
         labels = [
-            f"{calendar.month_abbr[m.month]} '{str(m.year)[-2:]}"
+            month_label(m)
             for m in months_list
         ]
 
@@ -781,7 +763,7 @@ def get_summary_line_details(report_month: date) -> tuple[list[dict], dict]:
     """Returns (list of country rows with count/confirmation data, totals dict) for report month."""
     session = get_session()
     try:
-        end = get_last_day_of_month(report_month)
+        end = next_month_start(report_month)
         query = text("""
             SELECT
                 origin_country,
@@ -824,7 +806,7 @@ def get_top_suppliers(report_month: date) -> list[dict]:
     """Returns top performing suppliers (compliance_rate >= 95%) for report month."""
     session = get_session()
     try:
-        end = get_last_day_of_month(report_month)
+        end = next_month_start(report_month)
         query = text("""
             SELECT
                 supplier,
@@ -873,7 +855,7 @@ def get_suppliers_below_threshold(report_month: date, threshold: float = 40.0) -
 
         month_ranges = []
         for m in months_to_check:
-            end = get_last_day_of_month(m)
+            end = next_month_start(m)
             month_ranges.append((m, end))
 
         query = text("""
@@ -1015,11 +997,11 @@ def get_all_suppliers_24month_trend(report_month: date) -> tuple[list[dict], lis
         months_list = months_list[-24:] if len(months_list) > 24 else months_list
 
         import calendar
-        month_labels = [f"{calendar.month_abbr[m.month]} '{str(m.year)[-2:]}" for m in months_list]
+        month_labels = [month_label(m) for m in months_list]
 
         supplier_data = {}
         for month_start in months_list:
-            month_end = get_last_day_of_month(month_start)
+            month_end = next_month_start(month_start)
             rows = session.execute(text("""
                 SELECT supplier,
                     COUNT(*) FILTER (WHERE compliance_status = 'Compliant')::FLOAT / NULLIF(COUNT(*), 0) * 100 AS rate

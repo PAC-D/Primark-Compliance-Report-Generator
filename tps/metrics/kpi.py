@@ -5,17 +5,10 @@ from datetime import date
 from sqlalchemy import text
 
 from tps.db import get_session
-from tps.metrics.supplier import get_last_day_of_month, get_report_month
-
-BD_REGION_COUNTRIES = {"Bangladesh", "India", "Pakistan", "Sri Lanka", "Morocco", "Turkey"}
-
+from tps.common import BD_REGION_COUNTRIES, month_label, next_month_start
 
 def classify_region(country: str) -> str:
     return "BD" if country in BD_REGION_COUNTRIES else "CN"
-
-
-def month_label(d: date) -> str:
-    return f"{calendar.month_abbr[d.month]} '{str(d.year)[-2:]}"
 
 
 def get_kpi_table_months(report_month: date) -> list[date]:
@@ -60,7 +53,7 @@ def get_kpi_monthly_tables(report_month: date) -> list[dict]:
     try:
         tables = []
         for m in get_kpi_table_months(report_month):
-            end = get_last_day_of_month(m)
+            end = next_month_start(m)
             rows = session.execute(text("""
                 SELECT origin_country AS country,
                        COUNT(DISTINCT supplier) AS suppliers,
@@ -103,7 +96,7 @@ def get_kpi_approved_by_performance(report_month: date) -> dict:
             label = month_label(m)
             if label not in present_labels:
                 continue
-            end = get_last_day_of_month(m)
+            end = next_month_start(m)
             rows = session.execute(text("""
                 SELECT approved_by, COUNT(*) AS lines
                 FROM raw_data
@@ -141,7 +134,7 @@ def _count_lines(session, start: date, end: date, countries: list[str], exclude:
 def get_kpi_avg_lines_per_day(report_month: date) -> dict:
     session = get_session()
     try:
-        end = get_last_day_of_month(report_month)
+        end = next_month_start(report_month)
         bd_countries = sorted(BD_REGION_COUNTRIES)
         bd_lines = _count_lines(session, report_month, end, bd_countries, exclude=False)
         cn_lines = _count_lines(session, report_month, end, bd_countries, exclude=True)
@@ -171,7 +164,7 @@ def get_kpi_supplier_factory_trend(report_month: date) -> dict:
         months = get_kpi_chart_months(report_month)
         labels, suppliers, factories = [], [], []
         for m in months:
-            end = get_last_day_of_month(m)
+            end = next_month_start(m)
             row = session.execute(text("""
                 SELECT COUNT(DISTINCT supplier) AS suppliers,
                        COUNT(DISTINCT factory) AS factories
@@ -193,7 +186,7 @@ def get_kpi_region_reflected_lines(report_month: date) -> dict:
         labels = [month_label(m) for m in months]
         bd_counts, cn_counts = [], []
         for m in months:
-            end = get_last_day_of_month(m)
+            end = next_month_start(m)
             rows = session.execute(text("""
                 SELECT origin_country AS country, COUNT(*) AS lines
                 FROM raw_data

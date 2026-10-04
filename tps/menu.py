@@ -1,10 +1,11 @@
+import logging
 import tkinter as tk
 from tkinter import filedialog
 import os
 from pathlib import Path
 from datetime import date
 
-from tps.config import CONFIG_PATH, DATA_DIR, LOG_FILE, ROOT
+from tps.config import CONFIG_PATH, DATA_DIR, LOG_FILE, ROOT, setup_logging
 from tps.ingest import is_file_processed, process_file, copy_to_data
 from tps.db import get_session, text, clear_supplier_emails, clear_all_tables, insert_supplier_email, init_supplier_emails_table
 from tps.reports.supplier_report import render_report
@@ -13,23 +14,12 @@ from tps.reports.kpi_report import render_kpi_report
 from tps.metrics.supplier import get_supplier_kpis
 from tps.reports.pdf import html_to_pdf, html_to_pdf_mixed
 from tps.extract import get_month_year_input, extract_supplier_data
-from tps.safe_filename import safe_filename
-from tps.logging_config import setup_logging, get_logger
+from tps.common import report_region, safe_filename
 import yaml
 import openpyxl
 
 setup_logging()
-logger = get_logger(__name__)
-
-CN_REGION_COUNTRIES = {"China", "Myanmar", "Cambodia", "Vietnam", "VietNam", "Indonesia"}
-
-BD_REGION_COUNTRIES = {"Bangladesh", "India", "Pakistan", "Sri Lanka", "Morocco", "Turkey"}
-
-
-def _get_report_region(origin_country: str) -> str:
-    """Returns 'CN Region' if origin_country contains any CN region country, else 'BD Region'."""
-    countries = {c.strip() for c in origin_country.split(",")}
-    return "CN Region" if countries & CN_REGION_COUNTRIES else "BD Region"
+logger = logging.getLogger(__name__)
 
 MAX_LOG_LINES = 50
 
@@ -148,7 +138,7 @@ def handle_generate_reports():
         try:
             kpis = get_supplier_kpis(supplier, report_month)
             origin_country = kpis.get("origin_country", "")
-            region = _get_report_region(origin_country)
+            region = report_region(origin_country.split(","))
 
             portrait_html, landscape_html = render_report(supplier, report_month)
 

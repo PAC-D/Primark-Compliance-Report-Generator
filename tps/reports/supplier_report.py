@@ -6,8 +6,9 @@ from collections import defaultdict
 import functools
 
 from tps.config import ASSETS_DIR as ASSETS_PATH, CONFIG_PATH, PACKAGE_DIR, TEMPLATES_DIR
+from tps.common import get_report_month
 from tps.metrics.supplier import (
-    get_report_month, get_compliance_rate, get_monthly_compliance_scores,
+    get_compliance_rate, get_monthly_compliance_scores,
     get_standard_carton_scores, get_density_scores, get_global_ranking,
     get_local_rankings, get_supplier_kpis,
     get_associated_factories, get_line_details, get_compliance_data,

@@ -5,7 +5,8 @@ import pandas as pd
 from sqlalchemy import text
 
 from tps.config import DATA_DIR
-from tps.db import engine, normalise_supplier
+from tps.common import normalise_supplier
+from tps.db import engine
 
 DROPPED_COLUMNS = [
     "Carton Specification(s)", "Priority", "Pack Type",
