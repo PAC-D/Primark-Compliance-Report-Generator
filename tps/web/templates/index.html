@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TPS Compliance Reports</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <img src="{{ primark_logo }}" alt="Primark" class="logo logo-primark">
+    <h1>TPS Compliance Reports</h1>
+    <img src="{{ allport_logo }}" alt="Allport PAC-D" class="logo logo-allport">
+  </header>
+
+  <main class="page">
+    <section id="job" class="job" aria-live="polite" hidden>
+      <div class="job-head">
+        <h2 id="job-name"></h2>
+        <span id="job-state" class="badge"></span>
+      </div>
+      <div class="progress" role="progressbar" aria-labelledby="job-name" aria-valuemin="0" aria-valuemax="100">
+        <div id="job-bar" class="progress-bar"></div>
+      </div>
+      <p id="job-message" class="muted"></p>
+      <p id="job-summary" class="job-summary"></p>
+      <div id="job-actions" class="job-actions"></div>
+      <details id="job-details-box" hidden>
+        <summary id="job-details-title"></summary>
+        <ul id="job-details"></ul>
+      </details>
+    </section>
+
+    <section aria-labelledby="reports-title">
+      <h2 id="reports-title" class="section-title">Reports</h2>
+      <form class="card card-wide" data-job="month">
+        <label class="field">
+          <span>Report month</span>
+          <input type="month" name="month" value="{{ month }}" required>
+        </label>
+        <div class="actions-grid">
+          <div class="action">
+            <button type="submit" name="kind" value="supplier-reports" class="btn btn-primary">Generate supplier reports</button>
+            <p class="hint">One compliance PDF per supplier, sorted into BD / CN Region folders. Takes several minutes.</p>
+          </div>
+          <div class="action">
+            <button type="submit" name="kind" value="summary" class="btn btn-primary">Generate summary workbook</button>
+            <p class="hint">Excel workbook covering every supplier for the month.</p>
+          </div>
+          <div class="action">
+            <button type="submit" name="kind" value="kpi" class="btn btn-primary">Generate KPI report</button>
+            <p class="hint">PDF with monthly KPI cards and regional trend charts.</p>
+          </div>
+          <div class="action">
+            <button type="submit" name="kind" value="extract" class="btn">Extract supplier data</button>
+            <p class="hint">Raw rows from data/, one workbook per supplier. No database needed.</p>
+          </div>
+        </div>
+      </form>
+    </section>
+
+    <section aria-labelledby="data-title">
+      <h2 id="data-title" class="section-title">Data</h2>
+      <div class="cards">
+        <form class="card" data-job="/jobs/upload">
+          <h3>Load transaction files</h3>
+          <p class="hint">Bi-weekly exports, e.g. <code>Multi Search (Packaging Management)_2026_Aug_1-15.xlsx</code>. Copied into data/.</p>
+          <label class="field">
+            <span>Excel files</span>
+            <input type="file" name="files" accept=".xlsx,.xls" multiple required>
+          </label>
+          <label class="check">
+            <input type="checkbox" name="reprocess">
+            <span>Re-load files that are already in the database (replaces their rows)</span>
+          </label>
+          <button type="submit" class="btn btn-primary">Load files</button>
+        </form>
+
+        <form class="card" data-job="/jobs/emails">
+          <h3>Import supplier emails</h3>
+          <p class="hint">Workbook with <strong>Supplier Name</strong> and <strong>Email</strong> columns. Replaces the stored list.</p>
+          <label class="field">
+            <span>Excel file</span>
+            <input type="file" name="file" accept=".xlsx,.xls" required>
+          </label>
+          <button type="submit" class="btn btn-primary">Import emails</button>
+        </form>
+
+        <form class="card card-danger" data-job="/jobs/clear"
+              data-confirm="Delete ALL rows from raw_data and supplier_emails? Tables are kept.">
+          <h3>Clear database</h3>
+          <p class="hint">Deletes every transaction row and every stored supplier email.</p>
+          <label class="check">
+            <input type="checkbox" name="reload" checked>
+            <span>Reload all files from data/ afterwards</span>
+          </label>
+          <button type="submit" class="btn btn-danger">Clear database</button>
+        </form>
+      </div>
+    </section>
+
+    <section aria-labelledby="logs-title">
+      <details id="logs" class="card card-wide">
+        <summary><h2 id="logs-title" class="section-title inline">Recent log</h2></summary>
+        <div class="log-tools">
+          <button type="button" id="logs-refresh" class="btn btn-small">Refresh</button>
+        </div>
+        <pre id="log-lines" class="log" tabindex="0"></pre>
+      </details>
+    </section>
+  </main>
+
+  <script id="initial-job" type="application/json">{{ job|tojson }}</script>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
