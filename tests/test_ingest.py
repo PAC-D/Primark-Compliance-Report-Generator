@@ -1,5 +1,9 @@
+from unittest.mock import patch
+
+import openpyxl
 import pytest
-from tps.ingest import load_excel
+
+from tps.ingest import import_supplier_emails, load_excel
 
 
 class TestCartonType:
@@ -295,3 +299,33 @@ class TestComplianceStatus:
             finally:
                 os.unlink(temp_path)
             assert result.iloc[0]["compliance_status"] == "Non-compliant"
+
+class TestImportSupplierEmails:
+    @pytest.fixture
+    def inserted(self):
+        rows = []
+        with patch("tps.ingest.init_supplier_emails_table"), \
+             patch("tps.ingest.clear_supplier_emails") as clear, \
+             patch("tps.ingest.insert_supplier_email", side_effect=lambda s, e: rows.append((s, e))):
+            yield rows
+            clear.assert_called_once()
+
+    def _workbook(self, tmp_path, header, *rows):
+        wb = openpyxl.Workbook()
+        wb.active.append(header)
+        for row in rows:
+            wb.active.append(row)
+        path = tmp_path / "emails.xlsx"
+        wb.save(path)
+        return str(path)
+
+    def test_splits_multiple_addresses_and_skips_blanks(self, tmp_path, inserted):
+        path = self._workbook(tmp_path, ["Email", "Supplier Name"],
+                              ["a@x.com; b@x.com,", "ACME"], [None, "NO EMAIL LTD"])
+        assert import_supplier_emails(path) == 2
+        assert inserted == [("ACME", "a@x.com"), ("ACME", "b@x.com")]
+
+    def test_missing_columns_raise(self, tmp_path):
+        path = self._workbook(tmp_path, ["Supplier", "Contact"], ["ACME", "a@x.com"])
+        with pytest.raises(ValueError, match="Could not find"):
+            import_supplier_emails(path)

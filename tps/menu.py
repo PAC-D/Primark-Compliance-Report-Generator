@@ -1,27 +1,26 @@
+"""Text menu - the entry point for every pipeline task (python -m tps)."""
+
 import logging
 import tkinter as tk
-from tkinter import filedialog
-import os
 from pathlib import Path
-from datetime import date
+from tkinter import filedialog
 
-from tps.config import CONFIG_PATH, DATA_DIR, LOG_FILE, ROOT, setup_logging
-from tps.ingest import is_file_processed, process_file, copy_to_data
-from tps.db import get_session, text, clear_supplier_emails, clear_all_tables, insert_supplier_email, init_supplier_emails_table
-from tps.reports.supplier_report import render_report
-from tps.reports.summary_excel import render_summary_excel
-from tps.reports.kpi_report import render_kpi_report
-from tps.metrics.supplier import get_supplier_kpis
-from tps.reports.pdf import html_to_pdf, html_to_pdf_mixed
-from tps.extract import extract_by_supplier
 from tps.common import ask_report_month, report_region, safe_filename
-import yaml
-import openpyxl
+from tps.config import DATA_DIR, LOG_FILE, OUTPUT_DIR, setup_logging
+from tps.db import clear_all_tables
+from tps.extract import extract_by_supplier
+from tps.ingest import copy_to_data, import_supplier_emails, is_file_processed, process_file
+from tps.metrics.supplier import get_supplier_kpis, get_suppliers_for_month
+from tps.reports.kpi_report import render_kpi_report
+from tps.reports.pdf import html_to_pdf, html_to_pdf_mixed
+from tps.reports.summary_excel import render_summary_excel
+from tps.reports.supplier_report import render_report
 
 setup_logging()
 logger = logging.getLogger(__name__)
 
 MAX_LOG_LINES = 50
+EXCEL_FILETYPES = [("Excel files", "*.xlsx *.xls"), ("All files", "*.*")]
 
 
 def print_banner():
@@ -43,91 +42,62 @@ def print_banner():
     print(banner)
 
 
-def handle_process_file():
+def _pick_excel(title: str, multiple: bool = False):
+    """Native file dialog; returns a path, a tuple of paths, or '' when cancelled."""
     root = tk.Tk()
     root.withdraw()
     try:
-        filepaths = filedialog.askopenfilenames(
-            title="Select Transaction Data Excel File(s)",
-            filetypes=[("Excel files", "*.xlsx *.xls"), ("All files", "*.*")]
-        )
+        ask = filedialog.askopenfilenames if multiple else filedialog.askopenfilename
+        return ask(title=title, filetypes=EXCEL_FILETYPES)
     finally:
         root.destroy()
 
-    if not filepaths:
-        return
 
-    for filepath in filepaths:
-        filename = os.path.basename(filepath)
+def _load_file(filepath, copy: bool) -> None:
+    """Insert one file into raw_data; a failure is reported and skipped."""
+    filename = Path(filepath).name
+    try:
+        row_count = process_file(str(filepath))
+        if copy:
+            copy_to_data(filepath)
+        logger.info(f"Inserted {row_count} rows from {filename}")
+        print(f"Successfully processed: {filename} ({row_count} rows)")
+    except Exception as e:
+        logger.warning(f"Error processing file {filename}: {e}")
+        print(f"Warning: {filename} failed - {e}. Skipping.")
+
+
+def handle_process_file():
+    for filepath in _pick_excel("Select Transaction Data Excel File(s)", multiple=True):
         logger.info(f"Processing file: {filepath}")
-
         if is_file_processed(filepath):
+            filename = Path(filepath).name
             logger.info("File already processed, skipping")
             print(f"File already processed: {filename}")
-            response = input(f"Re-process {filename}? (y/n): ").strip().lower()
-            if response != "y":
+            if input(f"Re-process {filename}? (y/n): ").strip().lower() != "y":
                 continue
+        _load_file(filepath, copy=True)
 
-        try:
-            row_count = process_file(filepath)
-            copy_to_data(filepath)
-            logger.info(f"Inserted {row_count} rows from {filename}")
-            logger.info("File copied to data/")
-            print(f"Successfully processed: {filename} ({row_count} rows)")
-        except Exception as e:
-            logger.warning(f"Error processing file {filename}: {e}")
-            print(f"Warning: {filename} failed - {e}. Skipping.")
-            continue
+
+def handle_reload_data():
+    filepaths = sorted(DATA_DIR.glob("*.xlsx")) + sorted(DATA_DIR.glob("*.xls"))
+    if not filepaths:
+        print("No files found in data/ folder.")
+        return
+    for filepath in filepaths:
+        logger.info(f"Reloading file: {filepath}")
+        _load_file(filepath, copy=False)
 
 
 def handle_generate_reports():
-    config_path = CONFIG_PATH
-    try:
-        with open(config_path) as f:
-            config = yaml.safe_load(f)
-    except Exception as e:
-        print(f"Error loading config: {e}")
-        return
-    output_dir = ROOT / config["paths"]["output_dir"]
-    output_dir.mkdir(exist_ok=True)
+    report_month = ask_report_month("Report Month Selection")
 
-    print("\n=== Report Month Selection ===")
-    print("Enter year and month for the report (or press Enter for default: previous month)")
-    year_input = input("Year (e.g., 2026) [default: previous month]: ").strip()
-    month_input = input("Month (1-12) [default: previous month]: ").strip()
-
-    report_month = None
-    if month_input:
-        try:
-            year = int(year_input) if year_input else (date.today().year)
-            month = int(month_input)
-            report_month = date(year, month, 1)
-            print(f"Using specified month: {report_month.strftime('%B %Y')}")
-        except ValueError:
-            print("Invalid date. Using default.")
-            report_month = None
-
-    if report_month is None:
-        print("Using default report month.")
-        today = date.today()
-        year = today.year if today.month > 1 else today.year - 1
-        month = today.month - 1 if today.month > 1 else 12
-        report_month = date(year, month, 1)
-
-    session = get_session()
-    try:
-        result = session.execute(
-            text("SELECT DISTINCT supplier FROM raw_data WHERE EXTRACT(YEAR FROM handover_date) = :year AND EXTRACT(MONTH FROM handover_date) = :month"),
-            {"year": report_month.year, "month": report_month.month}
-        )
-        suppliers = [row[0] for row in result]
-    finally:
-        session.close()
-
+    suppliers = get_suppliers_for_month(report_month)
     if not suppliers:
         print("No suppliers found in database.")
         return
 
+    file_date = report_month.strftime("%B_%Y")
     logger.info(f"Starting report generation for {len(suppliers)} suppliers")
     success_count = 0
     skip_count = 0
@@ -136,29 +106,19 @@ def handle_generate_reports():
         logger.info(f"Generating report {i}/{len(suppliers)} for: {supplier}")
         print(f"Generating report {i}/{len(suppliers)} for: {supplier}...")
         try:
-            kpis = get_supplier_kpis(supplier, report_month)
-            origin_country = kpis.get("origin_country", "")
-            region = report_region(origin_country.split(","))
+            origin_country = get_supplier_kpis(supplier, report_month).get("origin_country", "")
+            region_folder = OUTPUT_DIR / f"Report_{file_date}" / report_region(origin_country.split(","))
+            region_folder.mkdir(parents=True, exist_ok=True)
+            output_path = region_folder / f"{safe_filename(supplier)}_{file_date}.pdf"
 
             portrait_html, landscape_html = render_report(supplier, report_month)
-
-            safe_name = safe_filename(supplier)
-            file_date = report_month.strftime("%B_%Y") if report_month else date.today().strftime("%B_%Y")
-            month_folder = output_dir / f"Report_{file_date}"
-            region_folder = month_folder / region
-            region_folder.mkdir(parents=True, exist_ok=True)
-            output_path = region_folder / f"{safe_name}_{file_date}.pdf"
-
-            # Remove existing file to avoid conflicts
-            if output_path.exists():
-                output_path.unlink()
-
+            # Drop the old copy first so a failed run never leaves a stale report behind.
+            output_path.unlink(missing_ok=True)
             html_to_pdf_mixed(portrait_html, landscape_html, str(output_path))
             logger.info(f"Report saved: {output_path}")
             success_count += 1
         except Exception as e:
             logger.error(f"Error generating report for {supplier}: {e}")
-            logger.info(f"Skipped: {supplier} - {e}")
             print(f"  Skipped: {supplier} - {e}")
             skip_count += 1
 
@@ -166,68 +126,51 @@ def handle_generate_reports():
     print(f"Generated {success_count} reports, {skip_count} skipped.")
 
 
-def handle_view_logs():
-    log_file = LOG_FILE
-
-    try:
-        with open(log_file) as f:
-            lines = f.readlines()
-        for line in lines[-MAX_LOG_LINES:]:
-            print(line.rstrip())
-    except FileNotFoundError:
-        print("No logs found yet.")
-    except Exception as e:
-        print(f"Error reading logs: {e}")
-
-
 def handle_generate_summary_report():
-    config_path = CONFIG_PATH
-    try:
-        with open(config_path) as f:
-            config = yaml.safe_load(f)
-    except Exception as e:
-        print(f"Error loading config: {e}")
-        return
-    output_dir = ROOT / config["paths"]["output_dir"]
-    output_dir.mkdir(exist_ok=True)
-
-    print("\n=== Summary Report Month Selection ===")
-    print("Enter year and month for the report (or press Enter for default: previous month)")
-    year_input = input("Year (e.g., 2026) [default: previous month]: ").strip()
-    month_input = input("Month (1-12) [default: previous month]: ").strip()
-
-    report_month = None
-    if month_input:
-        try:
-            year = int(year_input) if year_input else (date.today().year)
-            month = int(month_input)
-            report_month = date(year, month, 1)
-            print(f"Using specified month: {report_month.strftime('%B %Y')}")
-        except ValueError:
-            print("Invalid date. Using default.")
-            report_month = None
-
-    if report_month is None:
-        print("Using default report month.")
-        today = date.today()
-        year = today.year if today.month > 1 else today.year - 1
-        month = today.month - 1 if today.month > 1 else 12
-        report_month = date(year, month, 1)
-
+    report_month = ask_report_month("Summary Report Month Selection")
     print("Rendering summary report...")
     try:
         wb = render_summary_excel(report_month)
-
-        file_date = report_month.strftime("%B_%Y") if report_month else date.today().strftime("%B_%Y")
-        output_path = output_dir / f"Summary_Report_{file_date}.xlsx"
-
+        OUTPUT_DIR.mkdir(exist_ok=True)
+        output_path = OUTPUT_DIR / f"Summary_Report_{report_month.strftime('%B_%Y')}.xlsx"
         wb.save(str(output_path))
-
         logger.info(f"Summary report saved: {output_path}")
         print(f"Summary report generated: {output_path}")
     except Exception as e:
         logger.error(f"Error generating summary report: {e}")
         print(f"Error generating summary report: {e}")
+
+
+def handle_generate_kpi_report():
+    report_month = ask_report_month("KPI Report Month Selection")
+    print("Rendering KPI report...")
+    try:
+        html = render_kpi_report(report_month)
+        OUTPUT_DIR.mkdir(exist_ok=True)
+        output_path = OUTPUT_DIR / f"KPI_Report_{report_month.strftime('%B_%Y')}.pdf"
+        output_path.unlink(missing_ok=True)
+        html_to_pdf(html, str(output_path))
+        logger.info(f"KPI report saved: {output_path}")
+        print(f"KPI report generated: {output_path}")
+    except ValueError as e:
+        logger.warning(f"KPI report skipped: {e}")
+        print(f"KPI report skipped: {e}")
+    except Exception as e:
+        logger.error(f"Error generating KPI report: {e}")
+        print(f"Error generating KPI report: {e}")
+
+
+def handle_view_logs():
+    try:
+        lines = LOG_FILE.read_text().splitlines()
+    except FileNotFoundError:
+        print("No logs found yet.")
+        return
+    except Exception as e:
+        print(f"Error reading logs: {e}")
+        return
+    for line in lines[-MAX_LOG_LINES:]:
+        print(line)
 
 
 def handle_extract_supplier_data():
@@ -240,139 +183,22 @@ def handle_extract_supplier_data():
 
 
 def handle_import_emails():
-    root = tk.Tk()
-    root.withdraw()
-    try:
-        filepath = filedialog.askopenfilename(
-            title="Select Supplier Emails Excel File",
-            filetypes=[("Excel files", "*.xlsx *.xls"), ("All files", "*.*")]
-        )
-    finally:
-        root.destroy()
-
+    filepath = _pick_excel("Select Supplier Emails Excel File")
     if not filepath:
         return
 
     logger.info(f"Importing supplier emails from: {filepath}")
-
     try:
-        wb = openpyxl.load_workbook(filepath, data_only=True)
-        ws = wb.active
-
-        header_row = [cell.value for cell in ws[1]]
-        if len(header_row) < 2:
-            print("Error: Excel must have at least 2 columns (Supplier Name, Email)")
-            return
-
-        supplier_col = None
-        email_col = None
-        for i, h in enumerate(header_row):
-            h_lower = (str(h) if h is not None else "").strip().lower()
-            if "supplier" in h_lower and "name" in h_lower:
-                supplier_col = i + 1
-            elif "email" in h_lower:
-                email_col = i + 1
-
-        if not supplier_col or not email_col:
-            print("Error: Could not find 'Supplier Name' and 'Email' columns")
-            return
-
-        init_supplier_emails_table()
-        clear_supplier_emails()
-
-        count = 0
-        for row in ws.iter_rows(min_row=2, values_only=True):
-            supplier_name = row[supplier_col - 1]
-            email = row[email_col - 1]
-            if supplier_name and email:
-                for single_email in str(email).replace(";", ",").split(","):
-                    single_email = single_email.strip()
-                    if single_email:
-                        insert_supplier_email(str(supplier_name), single_email)
-                        count += 1
-
-        logger.info(f"Imported {count} supplier emails")
-        print(f"Successfully imported {count} supplier emails")
-
+        count = import_supplier_emails(filepath)
+    except ValueError as e:
+        print(f"Error: {e}")
+        return
     except Exception as e:
         logger.error(f"Error importing supplier emails: {e}")
         print(f"Error importing supplier emails: {e}")
-
-
-def handle_generate_kpi_report():
-    config_path = CONFIG_PATH
-    try:
-        with open(config_path) as f:
-            config = yaml.safe_load(f)
-    except Exception as e:
-        print(f"Error loading config: {e}")
         return
-    output_dir = ROOT / config["paths"]["output_dir"]
-    output_dir.mkdir(exist_ok=True)
-
-    print("\n=== KPI Report Month Selection ===")
-    print("Enter year and month for the report (or press Enter for default: previous month)")
-    year_input = input("Year (e.g., 2026) [default: previous month]: ").strip()
-    month_input = input("Month (1-12) [default: previous month]: ").strip()
-
-    report_month = None
-    if month_input:
-        try:
-            year = int(year_input) if year_input else date.today().year
-            month = int(month_input)
-            report_month = date(year, month, 1)
-            print(f"Using specified month: {report_month.strftime('%B %Y')}")
-        except ValueError:
-            print("Invalid date. Using default.")
-            report_month = None
-
-    if report_month is None:
-        print("Using default report month.")
-        today = date.today()
-        year = today.year if today.month > 1 else today.year - 1
-        month = today.month - 1 if today.month > 1 else 12
-        report_month = date(year, month, 1)
-
-    print("Rendering KPI report...")
-    try:
-        html = render_kpi_report(report_month)
-
-        file_date = report_month.strftime("%B_%Y")
-        output_path = output_dir / f"KPI_Report_{file_date}.pdf"
-
-        if output_path.exists():
-            output_path.unlink()
-
-        html_to_pdf(html, str(output_path))
-        logger.info(f"KPI report saved: {output_path}")
-        print(f"KPI report generated: {output_path}")
-    except ValueError as e:
-        logger.warning(f"KPI report skipped: {e}")
-        print(f"KPI report skipped: {e}")
-    except Exception as e:
-        logger.error(f"Error generating KPI report: {e}")
-        print(f"Error generating KPI report: {e}")
-
-
-def handle_reload_data():
-    data_dir = DATA_DIR
-    filepaths = sorted(data_dir.glob("*.xlsx")) + sorted(data_dir.glob("*.xls"))
-
-    if not filepaths:
-        print("No files found in data/ folder.")
-        return
-
-    for filepath in filepaths:
-        filename = filepath.name
-        logger.info(f"Reloading file: {filepath}")
-        try:
-            row_count = process_file(str(filepath))
-            logger.info(f"Inserted {row_count} rows from {filename}")
-            print(f"Successfully processed: {filename} ({row_count} rows)")
-        except Exception as e:
-            logger.warning(f"Error processing file {filename}: {e}")
-            print(f"Warning: {filename} failed - {e}. Skipping.")
-            continue
+    logger.info(f"Imported {count} supplier emails")
+    print(f"Successfully imported {count} supplier emails")
 
 
 def handle_clear_database():
@@ -390,34 +216,32 @@ def handle_clear_database():
         print(f"Error clearing database: {e}")
         return
 
-    reload_response = input("Reload data from the data/ folder? (y/n): ").strip().lower()
-    if reload_response == "y":
+    if input("Reload data from the data/ folder? (y/n): ").strip().lower() == "y":
         handle_reload_data()
+
+
+ACTIONS = {
+    "1": handle_process_file,
+    "2": handle_generate_reports,
+    "3": handle_generate_summary_report,
+    "4": handle_view_logs,
+    "5": handle_extract_supplier_data,
+    "6": handle_import_emails,
+    "7": handle_generate_kpi_report,
+    "8": handle_clear_database,
+}
 
 
 def main():
     print_banner()
     while True:
         choice = input("\nSelect option: ").strip()
-        if choice == "1":
-            handle_process_file()
-        elif choice == "2":
-            handle_generate_reports()
-        elif choice == "3":
-            handle_generate_summary_report()
-        elif choice == "4":
-            handle_view_logs()
-        elif choice == "5":
-            handle_extract_supplier_data()
-        elif choice == "6":
-            handle_import_emails()
-        elif choice == "7":
-            handle_generate_kpi_report()
-        elif choice == "8":
-            handle_clear_database()
-        elif choice == "0":
+        if choice == "0":
             print("Goodbye!")
             break
+        action = ACTIONS.get(choice)
+        if action:
+            action()
         else:
             print("Invalid option. Try again.")
 

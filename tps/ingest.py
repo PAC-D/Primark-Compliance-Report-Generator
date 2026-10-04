@@ -1,12 +1,16 @@
+"""Loading source workbooks into the database: bi-weekly transaction exports
+and the supplier email list."""
+
 import shutil
 from pathlib import Path
 
+import openpyxl
 import pandas as pd
 from sqlalchemy import text
 
-from tps.config import DATA_DIR
 from tps.common import normalise_supplier
-from tps.db import engine
+from tps.config import DATA_DIR
+from tps.db import clear_supplier_emails, engine, init_supplier_emails_table, insert_supplier_email
 
 DROPPED_COLUMNS = [
     "Carton Specification(s)", "Priority", "Pack Type",
@@ -157,3 +161,38 @@ def is_file_processed(filepath: str) -> bool:
 def copy_to_data(filepath: str) -> None:
     DATA_DIR.mkdir(exist_ok=True)
     shutil.copy2(filepath, DATA_DIR / Path(filepath).name)
+
+def import_supplier_emails(filepath: str) -> int:
+    """Replace supplier_emails with a workbook's 'Supplier Name' / 'Email'
+    columns. A cell may hold several addresses split by ',' or ';'.
+    Returns the number of addresses stored."""
+    ws = openpyxl.load_workbook(filepath, data_only=True).active
+
+    header_row = [cell.value for cell in ws[1]]
+    if len(header_row) < 2:
+        raise ValueError("Excel must have at least 2 columns (Supplier Name, Email)")
+
+    supplier_col = email_col = None
+    for i, header in enumerate(header_row):
+        header = (str(header) if header is not None else "").strip().lower()
+        if "supplier" in header and "name" in header:
+            supplier_col = i
+        elif "email" in header:
+            email_col = i
+    if supplier_col is None or email_col is None:
+        raise ValueError("Could not find 'Supplier Name' and 'Email' columns")
+
+    init_supplier_emails_table()
+    clear_supplier_emails()
+
+    count = 0
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        supplier_name, emails = row[supplier_col], row[email_col]
+        if not (supplier_name and emails):
+            continue
+        for email in str(emails).replace(";", ",").split(","):
+            email = email.strip()
+            if email:
+                insert_supplier_email(str(supplier_name), email)
+                count += 1
+    return count

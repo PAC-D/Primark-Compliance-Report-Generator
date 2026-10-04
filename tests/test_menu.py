@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+import pytest
+
 from tps import menu
 
 
@@ -30,11 +32,17 @@ class TestClearDatabaseHandler:
 
 
 class TestKpiReportHandler:
+    @pytest.fixture(autouse=True)
+    def temp_output(self, tmp_path):
+        # The handler deletes any existing report before writing; keep it off output/.
+        with patch("tps.menu.OUTPUT_DIR", tmp_path):
+            yield
+
     def test_generates_pdf(self):
         fake_html = "<html>KPI</html>"
         with patch("tps.menu.render_kpi_report", return_value=fake_html) as mock_render, \
              patch("tps.menu.html_to_pdf", return_value=True) as mock_pdf, \
-             patch("tps.menu.input", side_effect=["2026", "6"]):
+             patch("builtins.input", side_effect=["2026", "6"]):
             menu.handle_generate_kpi_report()
             mock_render.assert_called_once()
             mock_pdf.assert_called_once()
@@ -43,7 +51,7 @@ class TestKpiReportHandler:
     def test_no_data_prints_message(self, capsys):
         with patch("tps.menu.render_kpi_report", side_effect=ValueError("No data available")), \
              patch("tps.menu.html_to_pdf") as mock_pdf, \
-             patch("tps.menu.input", side_effect=["2026", "6"]):
+             patch("builtins.input", side_effect=["2026", "6"]):
             menu.handle_generate_kpi_report()
             mock_pdf.assert_not_called()
             assert "No data" in capsys.readouterr().out
