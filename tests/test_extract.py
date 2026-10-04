@@ -12,7 +12,7 @@ def _source_file(tmp_path, monkeypatch, supplier, country):
     )
     monkeypatch.setattr("tps.config.DATA_DIR", data_dir)
     monkeypatch.setattr("tps.config.OUTPUT_DIR", tmp_path / "output")
-    return tmp_path / "output" / "2026-05 May" / "Supplier Data"
+    return tmp_path / "output" / "2026_May" / "Supplier_Data"
 
 
 def test_supplier_filename_uses_full_month_name(tmp_path, monkeypatch):
@@ -21,7 +21,7 @@ def test_supplier_filename_uses_full_month_name(tmp_path, monkeypatch):
 
     extract.extract_by_supplier(2026, 5)
 
-    assert [p.name for p in (out / "BD Region").glob("*.xlsx")] == ["Test Supplier Ltd_May_2026.xlsx"]
+    assert [p.name for p in (out / "BD_Region").glob("*.xlsx")] == ["Test Supplier Ltd_May_2026.xlsx"]
 
 
 def test_supplier_name_normalisation_is_applied(tmp_path, monkeypatch):
@@ -30,7 +30,7 @@ def test_supplier_name_normalisation_is_applied(tmp_path, monkeypatch):
 
     extract.extract_by_supplier(2026, 5)
 
-    assert [p.name for p in (out / "CN Region").glob("*.xlsx")] == ["BETTEX (HK) LIMITED (80243)_May_2026.xlsx"]
+    assert [p.name for p in (out / "CN_Region").glob("*.xlsx")] == ["BETTEX (HK) LIMITED (80243)_May_2026.xlsx"]
 
 
 def test_monthly_writes_one_combined_workbook(tmp_path, monkeypatch):

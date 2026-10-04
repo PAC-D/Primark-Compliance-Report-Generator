@@ -61,15 +61,15 @@ class TestNormaliseSupplier:
 
 class TestReportRegion:
     def test_mixed_regions_go_to_cn(self):
-        assert report_region("Bangladesh, China".split(",")) == "CN Region"
+        assert report_region("Bangladesh, China".split(",")) == "CN_Region"
 
     def test_all_bd_countries(self):
         countries = ["Bangladesh", "India", "Pakistan", "Sri Lanka", "Morocco", "Turkey"]
-        assert report_region(countries) == "BD Region"
+        assert report_region(countries) == "BD_Region"
 
     def test_any_other_country_is_cn(self):
-        assert report_region(["Egypt"]) == "CN Region"
-        assert report_region(["India", "Egypt"]) == "CN Region"
+        assert report_region(["Egypt"]) == "CN_Region"
+        assert report_region(["India", "Egypt"]) == "CN_Region"
 
 
 class TestMonths:

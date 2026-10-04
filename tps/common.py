@@ -13,10 +13,10 @@ BD_REGION_COUNTRIES = {"Bangladesh", "India", "Pakistan", "Sri Lanka", "Morocco"
 
 
 def report_region(countries: Iterable[str]) -> str:
-    """'BD Region' when every origin country is a BD-region country, else
-    'CN Region' - so a supplier shipping from both regions counts as CN."""
+    """'BD_Region' when every origin country is a BD-region country, else
+    'CN_Region' - so a supplier shipping from both regions counts as CN."""
     names = {str(c).strip() for c in countries}
-    return "BD Region" if names <= BD_REGION_COUNTRIES else "CN Region"
+    return "BD_Region" if names <= BD_REGION_COUNTRIES else "CN_Region"
 
 
 # --- Supplier names -------------------------------------------------------------

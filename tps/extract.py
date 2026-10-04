@@ -3,7 +3,7 @@
     python -m tps.extract monthly    one workbook with every row for a month
     python -m tps.extract supplier   one workbook per supplier, split by region
 
-Both write to output/<YYYY-MM Month>/Supplier Data/.
+Both write to output/<YYYY_Month>/Supplier_Data/.
 """
 
 import argparse
@@ -53,7 +53,7 @@ def extract_monthly(year: int, month: int) -> Path:
 
 
 def extract_by_supplier(year: int, month: int) -> Path:
-    """One workbook per supplier, under 'BD Region/' or 'CN Region/'."""
+    """One workbook per supplier, under 'BD_Region/' or 'CN_Region/'."""
     combined = load_month_files(year, month)
     combined["Supplier"] = combined["Supplier"].apply(
         lambda x: normalise_supplier(str(x)) if pd.notna(x) else x)
@@ -62,7 +62,7 @@ def extract_by_supplier(year: int, month: int) -> Path:
 
     base_output = _month_dir(year, month)
     month_name = calendar.month_name[month]
-    counts = {"BD Region": 0, "CN Region": 0}
+    counts = {"BD_Region": 0, "CN_Region": 0}
     for supplier, group in combined.groupby("Supplier"):
         region = report_region(c for c in group["Origin Country"].unique() if pd.notna(c))
         region_dir = base_output / region
@@ -73,8 +73,8 @@ def extract_by_supplier(year: int, month: int) -> Path:
         counts[region] += 1
         print(f"Created: {region}/{filename} ({len(group)} rows)")
 
-    print(f"\nExtraction complete! {counts['BD Region']} BD Region + "
-          f"{counts['CN Region']} CN Region files in: {base_output}")
+    print(f"\nExtraction complete! {counts['BD_Region']} BD Region + "
+          f"{counts['CN_Region']} CN Region files in: {base_output}")
     return base_output
 
 

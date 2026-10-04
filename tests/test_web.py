@@ -87,13 +87,13 @@ def test_cancel_stops_a_job_at_its_next_step(client, runner):
 
 
 def test_month_status_paths_are_relative_to_output(client, output):
-    kpi = output / "2026-08 August" / "KPI_Report_August_2026.pdf"
+    kpi = output / "2026_August" / "KPI_Report_August_2026.pdf"
     with patch("tps.actions.month_status", return_value={
             "total_suppliers": 1, "total_factories": 1,
             "outputs": {"kpi": {"count": 1, "updated": "2026-10-04T20:00:00", "file": kpi},
                         "summary": None}}):
         status = client.get("/month/2026-08").get_json()
-    assert status["outputs"]["kpi"]["file"] == "2026-08 August/KPI_Report_August_2026.pdf"
+    assert status["outputs"]["kpi"]["file"] == "2026_August/KPI_Report_August_2026.pdf"
     assert status["outputs"]["summary"] is None
 
 

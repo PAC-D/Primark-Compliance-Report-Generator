@@ -73,12 +73,11 @@ files), `output/` (all generated reports and extracts), `logs/`.
 
 ```
 output/
-  2026-08 August/
-    Supplier Reports/BD Region/*.pdf, CN Region/*.pdf
-    Supplier Data/BD Region/*.xlsx, CN Region/*.xlsx, All_Suppliers_Aug_2026.xlsx
+  2026_August/
+    Supplier_Reports/BD_Region/*.pdf, CN_Region/*.pdf
+    Supplier_Data/BD_Region/*.xlsx, CN_Region/*.xlsx, All_Suppliers_Aug_2026.xlsx
     Summary_Report_August_2026.xlsx
     KPI_Report_August_2026.pdf
-  _archive/        old previews and one-off files
 ```
 
 ## Tech Stack
@@ -133,10 +132,10 @@ It only listens on this PC. Stop it with Ctrl+C in the terminal.
 
 | Section | Action | What it does |
 |---------|--------|--------------|
-| Month | Supplier Reports | One compliance PDF per supplier with data that month, in `<month>/Supplier Reports/<BD or CN> Region/`. About 3 minutes for 127 suppliers. |
+| Month | Supplier Reports | One compliance PDF per supplier with data that month, in `<month>/Supplier_Reports/<BD or CN>_Region/`. About 3 minutes for 127 suppliers. |
 | Month | Summary Workbook | `<month>/Summary_Report_<Month>_<Year>.xlsx`. |
 | Month | KPI Report | `<month>/KPI_Report_<Month>_<Year>.pdf`. |
-| Month | Supplier Data | One workbook per supplier from the raw files in `data/` (no database), in `<month>/Supplier Data/`. |
+| Month | Supplier Data | One workbook per supplier from the raw files in `data/` (no database), in `<month>/Supplier_Data/`. |
 | Data | Load transaction files | Upload bi-weekly exports; loads them into `raw_data` and copies them into `data/`. Files already loaded are skipped unless "re-load" is ticked; re-loading replaces a file's rows, it never duplicates them. |
 | Data | Import supplier emails | Replace the stored supplier emails with a "Supplier Name / Email" workbook. |
 | Data | Clear database | Delete all rows from `raw_data` and `supplier_emails` (schema kept), optionally reloading `data/`. |
@@ -156,8 +155,8 @@ every other country is CN; a supplier with countries from both is CN.
 ### Extracts without the database
 
 ```bash
-python -m tps.extract monthly    # <month>/Supplier Data/All_Suppliers_<Mon>_<Year>.xlsx
-python -m tps.extract supplier   # <month>/Supplier Data/<BD or CN> Region/<Supplier>_<Month>_<Year>.xlsx
+python -m tps.extract monthly    # <month>/Supplier_Data/All_Suppliers_<Mon>_<Year>.xlsx
+python -m tps.extract supplier   # <month>/Supplier_Data/<BD or CN>_Region/<Supplier>_<Month>_<Year>.xlsx
 ```
 
 Both read the bi-weekly files in `data/` directly.

@@ -21,15 +21,15 @@ LOG_FILE = ROOT / "logs" / "run.log"
 REPORT_MONTH_OFFSET = CONFIG.get("app", {}).get("report_month_offset", 1)
 
 # output/<YYYY-MM Month>/ holds everything produced for one reporting month:
-#   Supplier Reports/<BD|CN> Region/*.pdf, Supplier Data/<BD|CN> Region/*.xlsx,
+#   Supplier_Reports/<BD|CN>_Region/*.pdf, Supplier_Data/<BD|CN>_Region/*.xlsx,
 #   Summary_Report_<Month>_<Year>.xlsx, KPI_Report_<Month>_<Year>.pdf
-SUPPLIER_REPORTS = "Supplier Reports"
-SUPPLIER_DATA = "Supplier Data"
+SUPPLIER_REPORTS = "Supplier_Reports"
+SUPPLIER_DATA = "Supplier_Data"
 
 
 def month_folder(month) -> Path:
-    """e.g. output/2026-08 August - sorts by date, reads as a month."""
-    return OUTPUT_DIR / f"{month:%Y-%m %B}"
+    """e.g. output/2026_August - no spaces in folder names."""
+    return OUTPUT_DIR / f"{month:%Y_%B}"
 
 
 def setup_logging() -> None:

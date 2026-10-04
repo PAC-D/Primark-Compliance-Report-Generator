@@ -135,7 +135,7 @@ def _supplier_pdf(supplier: str, report_month: date, folder: Path) -> Path:
 
 def generate_supplier_reports(report_month: date, progress=_no_progress) -> Result:
     """One compliance PDF per supplier with data in the month, rendered
-    PDF_WORKERS at a time, under <month>/Supplier Reports/<BD or CN> Region/."""
+    PDF_WORKERS at a time, under <month>/Supplier_Reports/<BD or CN>_Region/."""
     suppliers = get_suppliers_for_month(report_month)
     if not suppliers:
         return Result(f"No suppliers with data in {report_month:%B %Y}")

@@ -86,8 +86,8 @@ class TestSupplierReports:
              patch("tps.actions.html_to_pdf_mixed") as pdf:
             result = actions.generate_supplier_reports(date(2026, 7, 1), progress)
 
-        folder = temp_output / "2026-07 July" / "Supplier Reports"
-        pdf.assert_called_once_with("<p>", "<l>", str(folder / "CN Region" / "ACME_July_2026.pdf"))
+        folder = temp_output / "2026_July" / "Supplier_Reports"
+        pdf.assert_called_once_with("<p>", "<l>", str(folder / "CN_Region" / "ACME_July_2026.pdf"))
         assert result.folder == folder
         assert result.summary == "Generated 1 reports, 1 skipped"
         assert result.details == ["Skipped BAD LTD: boom"]
@@ -123,7 +123,7 @@ class TestKpiReport:
              patch("tps.actions.html_to_pdf") as pdf, \
              patch("tps.actions.close_browser"):
             result = actions.generate_kpi_report(date(2026, 6, 1))
-        path = temp_output / "2026-06 June" / "KPI_Report_June_2026.pdf"
+        path = temp_output / "2026_June" / "KPI_Report_June_2026.pdf"
         pdf.assert_called_once_with("<html>KPI</html>", str(path))
         assert result.files == [path]
 
@@ -139,7 +139,7 @@ def test_summary_report_saved_to_output(temp_output):
     workbook = MagicMock()
     with patch("tps.actions.render_summary_excel", return_value=workbook):
         result = actions.generate_summary_report(date(2026, 8, 1))
-    path = temp_output / "2026-08 August" / "Summary_Report_August_2026.xlsx"
+    path = temp_output / "2026_August" / "Summary_Report_August_2026.xlsx"
     workbook.save.assert_called_once_with(path)
     assert result.files == [path]
 
@@ -160,10 +160,10 @@ def test_tail_log(tmp_path):
 
 
 def test_month_status_reads_the_month_folder(temp_output):
-    month = temp_output / "2026-08 August"
-    (month / "Supplier Reports" / "BD Region").mkdir(parents=True)
-    (month / "Supplier Reports" / "BD Region" / "A_August_2026.pdf").write_bytes(b"%PDF")
-    (month / "Supplier Reports" / "BD Region" / "B_August_2026.pdf").write_bytes(b"%PDF")
+    month = temp_output / "2026_August"
+    (month / "Supplier_Reports" / "BD_Region").mkdir(parents=True)
+    (month / "Supplier_Reports" / "BD_Region" / "A_August_2026.pdf").write_bytes(b"%PDF")
+    (month / "Supplier_Reports" / "BD_Region" / "B_August_2026.pdf").write_bytes(b"%PDF")
     (month / "KPI_Report_August_2026.pdf").write_bytes(b"%PDF")
 
     with patch("tps.actions.get_summary_sources", return_value={"total_suppliers": 2, "total_factories": 3}):
