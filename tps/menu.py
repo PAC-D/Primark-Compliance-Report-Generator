@@ -13,8 +13,8 @@ from tps.reports.summary_excel import render_summary_excel
 from tps.reports.kpi_report import render_kpi_report
 from tps.metrics.supplier import get_supplier_kpis
 from tps.reports.pdf import html_to_pdf, html_to_pdf_mixed
-from tps.extract import get_month_year_input, extract_supplier_data
-from tps.common import report_region, safe_filename
+from tps.extract import extract_by_supplier
+from tps.common import ask_report_month, report_region, safe_filename
 import yaml
 import openpyxl
 
@@ -232,9 +232,8 @@ def handle_generate_summary_report():
 
 def handle_extract_supplier_data():
     try:
-        year, month = get_month_year_input()
-        print(f"\nExtracting data for {month}/{year}...")
-        extract_supplier_data(year, month)
+        report_month = ask_report_month("Supplier Data Extraction Month Selection")
+        extract_by_supplier(report_month.year, report_month.month)
     except Exception as e:
         logger.error(f"Error extracting supplier data: {e}")
         print(f"Error: {e}")

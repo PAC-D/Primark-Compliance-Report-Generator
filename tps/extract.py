@@ -1,125 +1,96 @@
-#!/usr/bin/env python3
-"""
-Supplier Data Extractor
+"""Re-slice the raw bi-weekly source files in data/ without touching the database.
 
-Extracts individual supplier Excel files from the bi-weekly source Excel files
-in the tps-pipeline data folder, grouped by supplier and categorized by region
-(BD Region / CN Region) under a month-year folder.
+    python -m tps.extract monthly    one workbook with every row for a month
+    python -m tps.extract supplier   one workbook per supplier, split by region
+
+Both write to output/Data_<Month>_<Year>/.
 """
+
+import argparse
+import calendar
+import sys
+from pathlib import Path
 
 import pandas as pd
-from pathlib import Path
-import re
-import sys
 
+from tps.common import ask_report_month, normalise_supplier, report_region, safe_filename
 from tps.config import DATA_DIR, OUTPUT_DIR
-from tps.common import normalise_supplier, safe_filename
-
-CN_REGION_COUNTRIES = {"China", "Myanmar", "Cambodia", "Vietnam", "VietNam", "Indonesia"}
-
-MONTH_NAMES = {1: 'January', 2: 'February', 3: 'March', 4: 'April', 5: 'May', 6: 'June',
-               7: 'July', 8: 'August', 9: 'September', 10: 'October', 11: 'November', 12: 'December'}
-
-MONTH_ABBR = {1: 'Jan', 2: 'Feb', 3: 'Mar', 4: 'Apr', 5: 'May', 6: 'Jun',
-              7: 'Jul', 8: 'Aug', 9: 'Sep', 10: 'Oct', 11: 'Nov', 12: 'Dec'}
 
 
-def _get_region_for_supplier(origin_countries) -> str:
-    """Returns 'CN Region' if supplier has any CN-region country, else 'BD Region'."""
-    countries = {str(c).strip() for c in origin_countries if pd.notna(c)}
-    return "CN Region" if countries & CN_REGION_COUNTRIES else "BD Region"
-
-
-def get_data_folder():
-    """Get the source data folder path"""
-    return DATA_DIR
-
-def get_files_for_month_year(year, month):
-    """Find all Excel files matching the given month/year"""
-    data_dir = get_data_folder()
-    mon = MONTH_ABBR.get(month, '')
-    pattern = f"*_{year}_{mon}_*.xlsx"
-    files = list(data_dir.glob(pattern))
+def load_month_files(year: int, month: int) -> pd.DataFrame:
+    """Every bi-weekly source file for the month, concatenated."""
+    mon = calendar.month_abbr[month]
+    files = list(DATA_DIR.glob(f"*_{year}_{mon}_*.xlsx"))
     if not files:
-        raise FileNotFoundError(f"No files found for {mon}/{year} in {data_dir}")
-    return files
-
-def get_month_year_input():
-    """Prompt user for month and year, default to previous month"""
-    from datetime import date
-    today = date.today()
-    if today.month == 1:
-        prev_month = 12
-        prev_year = today.year - 1
-    else:
-        prev_month = today.month - 1
-        prev_year = today.year
-    
-    print(f"Enter year and month for data extraction (default: previous month {prev_month}/{prev_year})")
-    year_input = input(f"Year (e.g., {prev_year}) [default: {prev_year}]: ").strip()
-    month_input = input(f"Month (1-12) [default: {prev_month}]: ").strip()
-    
-    year = int(year_input) if year_input else prev_year
-    month = int(month_input) if month_input else prev_month
-    
-    if not (1 <= month <= 12):
-        raise ValueError("Month must be between 1 and 12")
-    if year < 2000:
-        raise ValueError("Year seems invalid")
-    
-    return year, month
-
-def extract_supplier_data(year, month):
-    """Extract data for each supplier in the given month/year and save to Excel,
-    organized into Data_{Month}_{Year}/{BD,CN} Region/ folders."""
-    files = get_files_for_month_year(year, month)
+        raise FileNotFoundError(f"No files found for {mon}/{year} in {DATA_DIR}")
     print(f"Found {len(files)} file(s) for {month:02d}/{year}")
-    
+
     dfs = []
     for f in files:
         df = pd.read_excel(f)
         dfs.append(df)
         print(f"Loaded: {f.name} ({len(df)} rows)")
-    
-    combined = pd.concat(dfs, ignore_index=True)
-    combined['Supplier'] = combined['Supplier'].apply(lambda x: normalise_supplier(str(x)) if pd.notna(x) else x)
+    return pd.concat(dfs, ignore_index=True)
+
+
+def _month_dir(year: int, month: int) -> Path:
+    path = OUTPUT_DIR / f"Data_{calendar.month_name[month]}_{year}"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def extract_monthly(year: int, month: int) -> Path:
+    """All suppliers' rows for the month in a single workbook."""
+    combined = load_month_files(year, month)
     print(f"Total combined rows: {len(combined)}")
     print(f"Unique suppliers: {combined['Supplier'].nunique()}")
-    
-    month_folder = f"Data_{MONTH_NAMES[month]}_{year}"
-    base_output = OUTPUT_DIR / month_folder
-    base_output.mkdir(parents=True, exist_ok=True)
-    
-    bd_count = 0
-    cn_count = 0
-    for supplier, group in combined.groupby('Supplier'):
-        region = _get_region_for_supplier(group['Origin Country'].unique())
+
+    output_path = _month_dir(year, month) / f"All_Suppliers_{calendar.month_abbr[month]}_{year}.xlsx"
+    combined.to_excel(output_path, index=False)
+    print(f"\nExtraction complete! Single file saved to: {output_path}")
+    return output_path
+
+
+def extract_by_supplier(year: int, month: int) -> Path:
+    """One workbook per supplier, under 'BD Region/' or 'CN Region/'."""
+    combined = load_month_files(year, month)
+    combined["Supplier"] = combined["Supplier"].apply(
+        lambda x: normalise_supplier(str(x)) if pd.notna(x) else x)
+    print(f"Total combined rows: {len(combined)}")
+    print(f"Unique suppliers: {combined['Supplier'].nunique()}")
+
+    base_output = _month_dir(year, month)
+    month_name = calendar.month_name[month]
+    counts = {"BD Region": 0, "CN Region": 0}
+    for supplier, group in combined.groupby("Supplier"):
+        region = report_region(c for c in group["Origin Country"].unique() if pd.notna(c))
         region_dir = base_output / region
         region_dir.mkdir(exist_ok=True)
-        
-        safe_name = safe_filename(supplier)
-        filename = f"{safe_name}_{MONTH_NAMES[month]}_{year}.xlsx"
-        output_path = region_dir / filename
-        group.to_excel(output_path, index=False)
-        if region == "CN Region":
-            cn_count += 1
-        else:
-            bd_count += 1
-        print(f"Created: {region}/{filename} ({len(group)} rows)")
-    
-    print(f"\nExtraction complete! {bd_count} BD Region + {cn_count} CN Region files in: {base_output}")
 
-def main():
+        filename = f"{safe_filename(supplier)}_{month_name}_{year}.xlsx"
+        group.to_excel(region_dir / filename, index=False)
+        counts[region] += 1
+        print(f"Created: {region}/{filename} ({len(group)} rows)")
+
+    print(f"\nExtraction complete! {counts['BD Region']} BD Region + "
+          f"{counts['CN Region']} CN Region files in: {base_output}")
+    return base_output
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("kind", choices=["monthly", "supplier"])
+    args = parser.parse_args(argv)
+
+    report_month = ask_report_month("Data Extraction Month Selection")
+    extract = extract_monthly if args.kind == "monthly" else extract_by_supplier
     try:
-        year, month = get_month_year_input()
-        print(f"\nExtracting data for {month}/{year}...")
-        extract_supplier_data(year, month)
-    except (ValueError, FileNotFoundError) as e:
+        extract(report_month.year, report_month.month)
+    except FileNotFoundError as e:
         print(f"Error: {e}")
         sys.exit(1)
-    except Exception as e:
-        print(f"Error: {e}")
-        sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
