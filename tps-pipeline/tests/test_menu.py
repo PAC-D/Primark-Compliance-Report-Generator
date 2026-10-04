@@ -19,10 +19,14 @@ class TestMenuBanner:
 
 class TestClearDatabaseHandler:
     def test_clears_with_confirmation(self, capsys):
+        # Decline the reload prompt: answering "y" there re-inserts every file
+        # in data/ into the real database.
         with patch("menu.clear_all_tables") as mock_clear, \
-             patch("builtins.input", return_value="y"):
+             patch("menu.handle_reload_data") as mock_reload, \
+             patch("builtins.input", side_effect=["y", "n"]):
             menu.handle_clear_database()
             mock_clear.assert_called_once()
+            mock_reload.assert_not_called()
 
     def test_aborts_without_confirmation(self, capsys):
         with patch("menu.clear_all_tables") as mock_clear, \
