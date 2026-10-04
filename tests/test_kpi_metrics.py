@@ -3,8 +3,6 @@ import calendar
 from datetime import date
 from unittest.mock import patch, MagicMock
 
-import pytest
-
 from tps.metrics import kpi as kpi_metrics
 
 
