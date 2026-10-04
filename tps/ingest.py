@@ -121,6 +121,8 @@ def load_excel(filepath: str) -> pd.DataFrame:
 
 
 def process_file(filepath: str) -> int:
+    """Load one export into raw_data, replacing any rows from a file of the
+    same name - loading a file twice never duplicates its rows."""
     df = load_excel(filepath)
 
     columns = [
@@ -146,6 +148,8 @@ def process_file(filepath: str) -> int:
     placeholders = ", ".join([f":{c}" for c in available_cols])
 
     with engine.begin() as conn:
+        conn.execute(text("DELETE FROM raw_data WHERE source_file = :source_file"),
+                     {"source_file": Path(filepath).name})
         conn.execute(text(f"INSERT INTO raw_data ({col_names}) VALUES ({placeholders})"), records)
 
     return len(df)

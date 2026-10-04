@@ -1,9 +1,10 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import openpyxl
+import pandas as pd
 import pytest
 
-from tps.ingest import import_supplier_emails, load_excel
+from tps.ingest import import_supplier_emails, load_excel, process_file
 
 
 class TestCartonType:
@@ -77,7 +78,7 @@ class TestCartonType:
             "Packaging Confirmation Status": ["Approved"],
         }
         import pandas as pd
-        from unittest.mock import patch
+        from unittest.mock import MagicMock, patch
         with patch('tps.ingest.normalise_supplier', side_effect=lambda x: x):
             df = pd.DataFrame(data)
             import tempfile
@@ -120,7 +121,7 @@ class TestCBMCalculation:
             "Packaging Confirmation Status": ["Approved"],
         }
         import pandas as pd
-        from unittest.mock import patch
+        from unittest.mock import MagicMock, patch
         with patch('tps.ingest.normalise_supplier', side_effect=lambda x: x):
             df = pd.DataFrame(data)
             import tempfile
@@ -161,7 +162,7 @@ class TestCBMCalculation:
             "Packaging Confirmation Status": ["Approved"],
         }
         import pandas as pd
-        from unittest.mock import patch
+        from unittest.mock import MagicMock, patch
         with patch('tps.ingest.normalise_supplier', side_effect=lambda x: x):
             df = pd.DataFrame(data)
             import tempfile
@@ -204,7 +205,7 @@ class TestComplianceStatus:
             "Packaging Confirmation Status": ["Approved"],
         }
         import pandas as pd
-        from unittest.mock import patch
+        from unittest.mock import MagicMock, patch
         with patch('tps.ingest.normalise_supplier', side_effect=lambda x: x):
             df = pd.DataFrame(data)
             import tempfile
@@ -245,7 +246,7 @@ class TestComplianceStatus:
             "Packaging Confirmation Status": ["Rejected"],
         }
         import pandas as pd
-        from unittest.mock import patch
+        from unittest.mock import MagicMock, patch
         with patch('tps.ingest.normalise_supplier', side_effect=lambda x: x):
             df = pd.DataFrame(data)
             import tempfile
@@ -286,7 +287,7 @@ class TestComplianceStatus:
             "Packaging Confirmation Status": ["Approved"],
         }
         import pandas as pd
-        from unittest.mock import patch
+        from unittest.mock import MagicMock, patch
         with patch('tps.ingest.normalise_supplier', side_effect=lambda x: x):
             df = pd.DataFrame(data)
             import tempfile
@@ -329,3 +330,17 @@ class TestImportSupplierEmails:
         path = self._workbook(tmp_path, ["Supplier", "Contact"], ["ACME", "a@x.com"])
         with pytest.raises(ValueError, match="Could not find"):
             import_supplier_emails(path)
+
+def test_process_file_replaces_rows_of_the_same_file(tmp_path):
+    path = tmp_path / "Multi Search (Packaging Management)_2026_May_1-15.xlsx"
+    pd.DataFrame({"Supplier": ["ACME"], "Carton Matrix Code": [None],
+                  "Packaging Confirmation Status": ["Pending"]}).to_excel(path, index=False)
+    engine = MagicMock()
+    conn = engine.begin.return_value.__enter__.return_value
+    with patch("tps.ingest.engine", engine):
+        assert process_file(str(path)) == 1
+
+    delete, insert = conn.execute.call_args_list
+    assert str(delete.args[0]).startswith("DELETE FROM raw_data WHERE source_file")
+    assert delete.args[1] == {"source_file": path.name}
+    assert str(insert.args[0]).startswith("INSERT INTO raw_data")

@@ -21,6 +21,16 @@ def _chart_months(report_month: date) -> list[date]:
     return months_back(report_month, row.min_date)
 
 
+def get_latest_data_month() -> date | None:
+    """First day of the newest month with handover data; None when empty."""
+    session = get_session()
+    try:
+        latest = session.execute(text("SELECT MAX(handover_date) FROM raw_data")).scalar()
+    finally:
+        session.close()
+    return date(latest.year, latest.month, 1) if latest else None
+
+
 def get_summary_sources(report_month: date) -> dict:
     """Returns total suppliers and factories for the report month."""
     session = get_session()
