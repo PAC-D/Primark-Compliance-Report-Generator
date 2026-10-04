@@ -1,24 +1,24 @@
+"""Metrics for the monthly KPI report (all suppliers, split by region)."""
+
 import calendar
 import math
 from datetime import date
 
 from sqlalchemy import text
 
+from tps.common import BD_REGION_COUNTRIES, add_months, month_label, months_back, next_month_start
 from tps.db import get_session
-from tps.common import BD_REGION_COUNTRIES, month_label, next_month_start
+
 
 def classify_region(country: str) -> str:
+    """BD only for a listed BD country; everything else is CN.
+    (Report folders use the opposite default - see tps.common.report_region.)"""
     return "BD" if country in BD_REGION_COUNTRIES else "CN"
 
 
 def get_kpi_table_months(report_month: date) -> list[date]:
-    prev = (
-        date(report_month.year, report_month.month - 1, 1)
-        if report_month.month > 1
-        else date(report_month.year - 1, 12, 1)
-    )
-    last_year = date(report_month.year - 1, report_month.month, 1)
-    return [report_month, prev, last_year]
+    """Report month, the month before, and the same month last year."""
+    return [report_month, add_months(report_month, -1), add_months(report_month, -12)]
 
 
 def working_days_in_month(year: int, month: int, excluded_weekdays: tuple[int, ...]) -> int:
@@ -30,22 +30,16 @@ def working_days_in_month(year: int, month: int, excluded_weekdays: tuple[int, .
 
 
 def get_kpi_chart_months(report_month: date) -> list[date]:
+    """Up to 12 months ending at report_month, none before the oldest data;
+    just report_month when there is nothing to show."""
     session = get_session()
     try:
         row = session.execute(text("SELECT MIN(handover_date) AS min_date FROM raw_data")).fetchone()
-        months = []
-        cur = report_month
-        while len(months) < 12:
-            months.append(cur)
-            cur = date(cur.year, cur.month - 1, 1) if cur.month > 1 else date(cur.year - 1, 12, 1)
-        if row is None or row.min_date is None:
-            return [report_month]
-        db_first = date(row.min_date.year, row.min_date.month, 1)
-        months = [m for m in months if m >= db_first]
-        months.reverse()
-        return months or [report_month]
     finally:
         session.close()
+    if row is None or row.min_date is None:
+        return [report_month]
+    return months_back(report_month, row.min_date) or [report_month]
 
 
 def get_kpi_monthly_tables(report_month: date) -> list[dict]:

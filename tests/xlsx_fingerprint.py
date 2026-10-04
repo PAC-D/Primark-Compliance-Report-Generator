@@ -10,9 +10,6 @@ theme/tint metadata as one round-tripped through Excel. Only colours the
 renderer sets explicitly are compared.
 """
 
-from openpyxl.utils import get_column_letter
-
-
 def _rgb(colour):
     """Explicit RGB of a colour, or None for theme/indexed/absent colours.
 
@@ -216,7 +213,3 @@ def diff_fingerprints(expected, actual, path=""):
         diffs.append(f"{path}: {actual!r}, expected {expected!r}")
 
     return diffs
-
-
-def column_letters(count, start=1):
-    return [get_column_letter(start + i) for i in range(count)]

@@ -1,3 +1,11 @@
+"""Monthly summary workbook: Summary, Visibility, Top Performers,
+Follow-Up Required and Yearly Performance sheets.
+
+Layout is pinned to a hand-polished reference workbook by
+tests/test_summary_excel_layout.py - change widths/styles there first.
+"""
+
+import calendar
 from datetime import date
 
 from openpyxl import Workbook
@@ -17,22 +25,20 @@ from openpyxl.drawing.text import (
     RegularTextRun,
     RichTextProperties,
 )
-from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableColumn, TableStyleInfo
 
-from tps.reports._suppliers_below import build_follow_up_required_sheet as _build_suppliers_below_threshold_sheet
-from tps.reports._supplier_trend import _build_yearly_performance_sheet
 from tps.common import get_report_month
-from tps.metrics.supplier import (
-    get_all_suppliers_24month_trend,
-    get_summary_sources,
+from tps.metrics.summary import (
+    get_all_suppliers_trend,
     get_summary_country_compliance,
     get_summary_country_monthly_trend,
     get_summary_line_details,
-    get_top_suppliers,
-    get_suppliers_below_threshold,
+    get_summary_sources,
     get_supplier_emails_map,
+    get_suppliers_below_threshold,
+    get_top_suppliers,
 )
 
 ACCENT = "1F4E79"
@@ -69,7 +75,7 @@ def render_summary_excel(report_month: date | None = None) -> Workbook:
     line_details, line_totals = get_summary_line_details(report_month)
     top_suppliers = get_top_suppliers(report_month)
     suppliers_below = get_suppliers_below_threshold(report_month)
-    all_supplier_trend, month_labels = get_all_suppliers_24month_trend(report_month)
+    all_supplier_trend, month_labels = get_all_suppliers_trend(report_month)
     email_map = get_supplier_emails_map()
 
     month_name = report_month.strftime("%B")
@@ -79,8 +85,7 @@ def render_summary_excel(report_month: date | None = None) -> Workbook:
                          chart_labels, country_order, month_name, year)
     _build_visibility_sheet(wb, line_details, line_totals, month_name, year)
     _build_top_performers_sheet(wb, top_suppliers, month_name, year)
-    _build_suppliers_below_threshold_sheet(wb, suppliers_below, email_map,
-                                           month_label=f"{month_name} {year}")
+    _build_follow_up_required_sheet(wb, suppliers_below, email_map, f"{month_name} {year}")
     _build_yearly_performance_sheet(wb, all_supplier_trend, month_labels, year)
 
     return wb
@@ -388,3 +393,161 @@ def _build_top_performers_sheet(wb, top_suppliers, month_name, year):
     _set_widths(ws, {"A": 5.0, "B": 27.82, "C": 69.18, "D": 17.45,
                      "E": 16.63, "F": 17.18, "G": 19.63})
     ws.freeze_panes = "A3"
+
+# --- Follow-Up Required sheet ---------------------------------------------------
+
+FOLLOW_UP_HEADER_FILL = PatternFill(start_color="156082", end_color="156082", fill_type="solid")
+FOLLOW_UP_HEADER_FONT = Font(bold=True, size=10, color="FFFFFF")
+FOLLOW_UP_HEADERS = ["Sl ", "Origin Country ", "Supplier Name ", "No of Factories ",
+                     "Destination PO Qty ", "Reflected Lines ", "Compliance Score ", "Email "]
+# Header cells that are explicitly centred; the rest keep the default alignment.
+FOLLOW_UP_CENTERED = {2, 4, 5, 6, 7}
+FOLLOW_UP_WIDTHS = {"A": 5.0, "B": 22.0, "C": 45.0, "D": 17.45,
+                    "E": 16.63, "F": 17.18, "G": 19.63, "H": 92.82}
+
+
+def _build_follow_up_required_sheet(wb, suppliers_below, email_map, month_label):
+    ws = wb.create_sheet("Follow-Up Required")
+    ws.sheet_view.showGridLines = False
+
+    _title(ws, "A1:H1", f"Follow-Up Required (Avg. Compliance <40% – Last 3 Months) – {month_label}")
+    ws.row_dimensions[1].height = 17.0
+
+    for col, label in enumerate(FOLLOW_UP_HEADERS, 1):
+        cell = ws.cell(row=2, column=col, value=label)
+        cell.font = FOLLOW_UP_HEADER_FONT
+        cell.fill = FOLLOW_UP_HEADER_FILL
+        if col in FOLLOW_UP_CENTERED:
+            cell.alignment = CENTER
+
+    for i, supplier in enumerate(suppliers_below):
+        row = 3 + i
+
+        index_cell = ws.cell(row=row, column=1, value=supplier["sl"])
+        index_cell.font = Font(size=10)
+        index_cell.alignment = CENTER
+
+        ws.cell(row=row, column=2, value=supplier["origin_country"])
+        ws.cell(row=row, column=3, value=supplier["supplier"])
+
+        for col, field in ((4, "factory_count"), (5, "dest_po_count"),
+                           (6, "reflected_lines")):
+            cell = ws.cell(row=row, column=col, value=supplier[field])
+            cell.alignment = CENTER
+
+        rate = supplier.get("avg_3month")
+        if rate is None:
+            rate = supplier.get("compliance_rate", 0)
+        rate_cell = ws.cell(row=row, column=7, value=rate / 100.0)
+        rate_cell.number_format = "0%"
+        rate_cell.alignment = CENTER
+
+        ws.cell(row=row, column=8,
+                value=email_map.get(supplier["supplier"].strip().lower(), ""))
+
+    last_row = 2 + len(suppliers_below)
+    columns = [TableColumn(id=i, name=label) for i, label in enumerate(FOLLOW_UP_HEADERS, 1)]
+    _add_table(ws, "Table6", f"A2:H{last_row}", "TableStyleLight9", columns)
+
+    _set_widths(ws, FOLLOW_UP_WIDTHS)
+    ws.freeze_panes = "A3"
+
+
+# --- Yearly Performance sheet ---------------------------------------------------
+
+THIN_BORDER = Border(left=Side(style="thin"), right=Side(style="thin"),
+                     top=Side(style="thin"), bottom=Side(style="thin"))
+BAND_FILL = PatternFill(start_color="F9FAFB", end_color="F9FAFB", fill_type="solid")
+YEAR_FILL = PatternFill(start_color="4A5568", end_color="4A5568", fill_type="solid")
+YEARLY_HEADER_FILL = PatternFill(start_color="1B2838", end_color="1B2838", fill_type="solid")
+
+# Widths carried over from the reference workbook; extra months fall back to
+# the width used by most month columns.
+MONTH_WIDTHS = [10.45, 10.63, 11.0, 10.45, 11.36, 10.45, 13.63]
+DEFAULT_MONTH_WIDTH = 10.45
+
+YEAR_BAND_ROW = 6
+HEADER_ROW = 7
+FIRST_DATA_ROW = 8
+
+
+def _build_yearly_performance_sheet(wb, supplier_trend, month_labels, year):
+    ws = wb.create_sheet("Yearly Performance")
+    ws.sheet_view.showGridLines = False
+
+    num_months = len(month_labels)
+    last_month_col = 2 + num_months
+    total_col = last_month_col + 1
+    last_month_letter = get_column_letter(last_month_col)
+
+    _title(ws, f"A1:{last_month_letter}1",
+           f"Suppliers Yearly Performance – January {year} "
+           f"to {chart_end_caption(month_labels, year)}")
+    ws.row_dimensions[1].height = 16.5
+
+    ws.merge_cells(f"A{YEAR_BAND_ROW}:B{YEAR_BAND_ROW}")
+    ws.merge_cells(f"C{YEAR_BAND_ROW}:{last_month_letter}{YEAR_BAND_ROW}")
+    year_cell = ws.cell(row=YEAR_BAND_ROW, column=3, value=year)
+    year_cell.font = Font(bold=True, color="FFFFFF", size=11)
+    year_cell.fill = YEAR_FILL
+    year_cell.alignment = CENTER_MIDDLE
+    year_cell.border = Border(bottom=Side(style="thin"))
+
+    headers = ["#", "Supplier Name"] + list(month_labels) + ["Total"]
+    for col, label in enumerate(headers, 1):
+        cell = ws.cell(row=HEADER_ROW, column=col, value=label)
+        cell.font = Font(bold=True, color="FFFFFF", size=9)
+        cell.fill = YEARLY_HEADER_FILL
+        cell.alignment = CENTER_MIDDLE
+        cell.border = THIN_BORDER
+
+    ws.column_dimensions["A"].width = 6.45
+    ws.column_dimensions["B"].width = 81.36
+    for i in range(num_months):
+        width = MONTH_WIDTHS[i] if i < len(MONTH_WIDTHS) else DEFAULT_MONTH_WIDTH
+        ws.column_dimensions[get_column_letter(3 + i)].width = width
+    ws.column_dimensions[get_column_letter(total_col)].width = 7.82
+
+    for idx, supplier in enumerate(supplier_trend, start=1):
+        row = HEADER_ROW + idx
+        banded = idx % 2 == 0
+
+        ws.cell(row=row, column=1, value=idx).alignment = CENTER
+        ws.cell(row=row, column=2, value=supplier["supplier"]).alignment = LEFT
+
+        for i, rate in enumerate(supplier["rates"]):
+            cell = ws.cell(row=row, column=3 + i)
+            # A month with no data stays genuinely empty, so AVERAGE skips it.
+            if rate is not None:
+                cell.value = rate / 100.0
+                cell.number_format = "0.00%"
+                if rate < 40:
+                    cell.font = Font(color="DC2626", bold=True, size=11)
+                elif rate < 60:
+                    cell.font = Font(color="EA580C", size=11)
+            cell.alignment = CENTER
+
+        total_cell = ws.cell(row=row, column=total_col)
+        total_cell.value = f'=IFERROR(AVERAGE(C{row}:{last_month_letter}{row}),"")'
+        total_cell.number_format = "0.00%"
+        total_cell.alignment = CENTER
+        total_cell.font = Font(bold=True, size=11)
+
+        for col in range(1, total_col + 1):
+            cell = ws.cell(row=row, column=col)
+            cell.border = THIN_BORDER
+            if banded:
+                cell.fill = BAND_FILL
+
+    last_row = HEADER_ROW + len(supplier_trend)
+    ws.auto_filter.ref = f"A{HEADER_ROW}:{get_column_letter(total_col)}{last_row}"
+    ws.freeze_panes = f"A{FIRST_DATA_ROW}"
+
+
+def chart_end_caption(month_labels, year):
+    """"July 2026" from the last chart label ("Jul '26"); just the year if unparseable."""
+    try:
+        m_abbr, yy = month_labels[-1].split(" '")
+        return f"{calendar.month_name[list(calendar.month_abbr).index(m_abbr)]} 20{int(yy)}"
+    except (IndexError, ValueError):
+        return f"{year}"

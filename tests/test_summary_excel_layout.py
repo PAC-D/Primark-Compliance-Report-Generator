@@ -15,12 +15,12 @@ from openpyxl import Workbook
 from . import reference_data
 from .xlsx_fingerprint import diff_fingerprints, sheet_fingerprint
 
-from tps.reports._suppliers_below import build_follow_up_required_sheet
-from tps.reports._supplier_trend import _build_yearly_performance_sheet
 from tps.reports.summary_excel import (
+    _build_follow_up_required_sheet,
     _build_summary_sheet,
     _build_top_performers_sheet,
     _build_visibility_sheet,
+    _build_yearly_performance_sheet,
 )
 
 # The reference holds real supplier names and emails, so it stays out of git.
@@ -59,7 +59,10 @@ def generated_wb(inputs):
     _build_top_performers_sheet(
         wb, inputs["top_suppliers"], reference_data.MONTH_NAME, reference_data.YEAR,
     )
-    build_follow_up_required_sheet(wb, inputs["suppliers_below"], inputs["email_map"])
+    _build_follow_up_required_sheet(
+        wb, inputs["suppliers_below"], inputs["email_map"],
+        f"{reference_data.MONTH_NAME} {reference_data.YEAR}",
+    )
     _build_yearly_performance_sheet(
         wb, inputs["all_supplier_trend"], inputs["month_labels"], reference_data.YEAR,
     )
@@ -169,7 +172,7 @@ def test_follow_up_title_carries_report_month_without_month_label_rows():
     wb = Workbook()
     wb.remove(wb.active)
 
-    build_follow_up_required_sheet(wb, [_one_supplier()], {}, month_label="July 2026")
+    _build_follow_up_required_sheet(wb, [_one_supplier()], {}, "July 2026")
 
     assert wb["Follow-Up Required"]["A1"].value == (
         "Follow-Up Required (Avg. Compliance <40% – Last 3 Months) – July 2026"

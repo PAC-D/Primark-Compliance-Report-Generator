@@ -1,21 +1,26 @@
-from sqlalchemy import text
-from sqlalchemy import create_engine
+"""PostgreSQL connection, schema and table maintenance."""
+
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
-from typing import List, Dict
 
 from tps.config import CONFIG
 
-_db_config = CONFIG["database"]
+_db = CONFIG["database"]
 
-_engine = create_engine(
-    f"postgresql+psycopg2://{_db_config['user']}:{_db_config['password']}"
-    f"@{_db_config['host']}:{_db_config['port']}/{_db_config['name']}"
+engine = create_engine(
+    f"postgresql+psycopg2://{_db['user']}:{_db['password']}"
+    f"@{_db['host']}:{_db['port']}/{_db['name']}"
 )
-_SessionFactory = sessionmaker(bind=_engine)
+_SessionFactory = sessionmaker(bind=engine)
+
+
+def get_session() -> Session:
+    return _SessionFactory()
 
 
 def init_db() -> None:
-    with _engine.connect() as conn:
+    """Drop and recreate raw_data; create supplier_emails if missing."""
+    with engine.connect() as conn:
         conn.execute(text("DROP TABLE IF EXISTS raw_data CASCADE"))
         conn.execute(text("""
         CREATE TABLE raw_data (
@@ -55,13 +60,9 @@ def init_db() -> None:
         conn.commit()
 
 
-def get_session() -> Session:
-    return _SessionFactory()
-
-
 def init_supplier_emails_table() -> None:
     """Creates the supplier_emails table if it doesn't exist."""
-    with _engine.connect() as conn:
+    with engine.connect() as conn:
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS supplier_emails (
                 id SERIAL PRIMARY KEY,
@@ -79,21 +80,14 @@ def init_supplier_emails_table() -> None:
 
 def clear_supplier_emails() -> None:
     """Clears all rows from the supplier_emails table."""
-    with _engine.connect() as conn:
+    with engine.connect() as conn:
         conn.execute(text("DELETE FROM supplier_emails"))
-        conn.commit()
-
-
-def clear_raw_data() -> None:
-    """Clears all rows from the raw_data table."""
-    with _engine.connect() as conn:
-        conn.execute(text("DELETE FROM raw_data"))
         conn.commit()
 
 
 def clear_all_tables() -> None:
     """Clears all rows from all data tables."""
-    with _engine.connect() as conn:
+    with engine.connect() as conn:
         conn.execute(text("DELETE FROM raw_data"))
         conn.execute(text("DELETE FROM supplier_emails"))
         conn.commit()
@@ -101,13 +95,9 @@ def clear_all_tables() -> None:
 
 def insert_supplier_email(supplier_name: str, email: str) -> None:
     """Inserts a single supplier/email pair. Supplier name is lowercased."""
-    with _engine.connect() as conn:
+    with engine.connect() as conn:
         conn.execute(
             text("INSERT INTO supplier_emails (supplier_name, email) VALUES (:supplier, :email) ON CONFLICT DO NOTHING"),
             {"supplier": supplier_name.strip().lower(), "email": email.strip()}
         )
         conn.commit()
-
-
-# Alias for backwards compatibility
-engine = _engine

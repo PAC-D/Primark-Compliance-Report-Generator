@@ -1,94 +1,31 @@
-from jinja2 import Environment, FileSystemLoader, select_autoescape
-from pathlib import Path
-import yaml
-from datetime import datetime, date
-from collections import defaultdict
-import functools
+"""Per-supplier compliance report: portrait summary pages + landscape transaction list."""
 
-from tps.config import ASSETS_DIR as ASSETS_PATH, CONFIG_PATH, PACKAGE_DIR, TEMPLATES_DIR
+from datetime import date, datetime
+
 from tps.common import get_report_month
 from tps.metrics.supplier import (
-    get_compliance_rate, get_monthly_compliance_scores,
-    get_standard_carton_scores, get_density_scores, get_global_ranking,
-    get_local_rankings, get_supplier_kpis,
-    get_associated_factories, get_line_details, get_compliance_data,
-    get_transactions, get_volume_scores
+    get_associated_factories,
+    get_compliance_data,
+    get_compliance_rate,
+    get_density_scores,
+    get_global_ranking,
+    get_line_details,
+    get_local_rankings,
+    get_monthly_compliance_scores,
+    get_standard_carton_scores,
+    get_supplier_kpis,
+    get_transactions,
 )
+from tps.reports.html import ALLPORT_LOGO, DEAN_MOSS_SIGNATURE, PRIMARK_LOGO, render
 
-
-TABLE_COLUMNS_PATH = PACKAGE_DIR / "table_columns.yaml"
-
-import base64
-
-def _load_logo(name: str) -> str:
-    with open(ASSETS_PATH / name, "rb") as f:
-        return f"data:image/png;base64,{base64.b64encode(f.read()).decode()}"
-
-def _load_signature(name: str) -> str:
-    with open(ASSETS_PATH / name, "rb") as f:
-        return f"data:image/jpeg;base64,{base64.b64encode(f.read()).decode()}"
-
-PRIMARK_LOGO = _load_logo("Primark-logo.png")
-ALLPORT_LOGO = _load_logo("allport-pacd-logo.png")
-DEAN_MOSS_SIGNATURE = _load_signature("DeanMoss.jpg")
-
-CORRUGATED_ADD_LENGTH = 6
-CORRUGATED_ADD_WIDTH = 4
-CORRUGATED_DIVISOR = 10000
-
-
-def make_landscape_header_footer(primark_logo: str, allport_logo: str, month_name: str = "", year: int = 0) -> tuple[str, str]:
-    header_html = f'''<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 16px;border-bottom:4px solid #e31837;">
-  <img src="{primark_logo}" style="height:25px;width:auto;" alt="Primark">
-  <img src="{allport_logo}" style="height:28px;width:auto;" alt="Allport">
-</div>'''
-    footer_html = f'''<div style="display:flex;justify-content:space-between;padding:6px 16px;border-top:1px solid #e5e7eb;font-size:8px;color:#6b7280;">
-  <span>Generated: {datetime.now().strftime("%d %B %Y")}</span>
-  <span>TPS Transaction Report</span>
-</div>'''
-    return header_html, footer_html
-
-
-@functools.lru_cache(maxsize=1)
-def _load_table_columns():
-    with open(TABLE_COLUMNS_PATH) as f:
-        return yaml.safe_load(f)
-
-
-def get_renderer_config() -> dict:
-    with open(CONFIG_PATH) as f:
-        config = yaml.safe_load(f)
-    return {
-        "database": config.get("database", {}),
-        "paths": config.get("paths", {}),
-        "app": config.get("app", {})
-    }
-
-
-def calculate_corrugated_sqm(factory_transactions: list) -> float:
-    total_sqm = 0.0
-    for txn in factory_transactions:
-        length = txn.get("carton_length_mm")
-        width = txn.get("carton_width_mm")
-        height = txn.get("carton_height_mm")
-
-        if length is None or width is None or height is None:
-            continue
-
-        L = length / 10
-        W = width / 10
-        H = height / 10
-        sqm = ((L + CORRUGATED_ADD_LENGTH) * (W + H + CORRUGATED_ADD_WIDTH) * 2) / CORRUGATED_DIVISOR
-        total_sqm += sqm
-
-    return round(total_sqm)
+# The template marks where the portrait pages end and the landscape pages begin.
+LANDSCAPE_MARKER = '<div class="page-break-landscape"></div>'
 
 
 def _make_gauge_arc(rate: float) -> dict:
-    """Compute SVG arc path for a half-circle gauge. rate is 0-100."""
-    import math
+    """SVG stroke settings for the half-circle gauge. rate is 0-100."""
     rate = max(0, min(100, rate))
-    # Half circle arc length for r=90: π * 90 ≈ 282.7
+    # Half circle arc length for r=90: pi * 90 ~= 282.7
     dasharray = round(rate * 2.827, 1)
     return {
         "rate": rate,
@@ -98,84 +35,60 @@ def _make_gauge_arc(rate: float) -> dict:
 
 
 def render_report(supplier: str, report_month: date | None = None) -> tuple[str, str | None]:
+    """Returns (portrait_html, landscape_html); landscape is None when the
+    template has no landscape section."""
     if report_month is None:
         report_month = get_report_month()
 
-    table_columns = _load_table_columns()
-
-    kpis = get_supplier_kpis(supplier, report_month)
     ranking, total, shared = get_global_ranking(supplier, report_month)
     local_rankings = get_local_rankings(supplier, report_month)
-
     compliance_rate = get_compliance_rate(supplier, report_month.year, report_month.month)
-    monthly_compliance_scores, monthly_compliance_labels = get_monthly_compliance_scores(supplier, report_month=report_month)
-    standard_carton_scores, standard_carton_labels = get_standard_carton_scores(supplier, report_month=report_month)
-    density_scores, density_labels = get_density_scores(supplier, report_month=report_month)
-    volume_scores, volume_labels = get_volume_scores(supplier, report_month=report_month)
-    associated_factories = get_associated_factories(supplier, report_month)
+    monthly_compliance_scores, monthly_compliance_labels = get_monthly_compliance_scores(supplier, report_month)
+    standard_carton_scores, standard_carton_labels = get_standard_carton_scores(supplier, report_month)
+    density_scores, density_labels = get_density_scores(supplier, report_month)
     line_details, line_totals = get_line_details(supplier, report_month)
-    compliance_data = get_compliance_data(supplier, report_month)
+
     transactions = get_transactions(supplier, report_month)
     for txn in transactions:
-        if txn.get('updated_date'):
-            txn['updated_date'] = txn['updated_date'].strftime('%d %b %Y')
-        if txn.get('approved_date'):
-            txn['approved_date'] = txn['approved_date'].strftime('%d %b %Y')
-        if txn.get('handover_date'):
-            txn['handover_date'] = txn['handover_date'].strftime('%d %b %Y')
+        for key in ("updated_date", "approved_date", "handover_date"):
+            if txn.get(key):
+                txn[key] = txn[key].strftime("%d %b %Y")
 
-    env = Environment(
-        loader=FileSystemLoader(str(TEMPLATES_DIR)),
-        autoescape=select_autoescape(["html", "xml"])
+    full_html = render(
+        "report.html.j2",
+        supplier_name=supplier,
+        month_name=report_month.strftime("%B"),
+        year=report_month.year,
+        release_date=datetime.now().strftime("%d %B %Y"),
+        kpis=get_supplier_kpis(supplier, report_month),
+        ranking=ranking,
+        total_suppliers=total,
+        shared=shared,
+        local_rankings=local_rankings,
+        multi_country=len(local_rankings) > 1,
+        long_supplier_name=len(supplier) > 30,
+        compliance_rate=compliance_rate,
+        gauge=_make_gauge_arc(compliance_rate),
+        monthly_compliance_scores=monthly_compliance_scores,
+        monthly_compliance_labels=monthly_compliance_labels,
+        standard_carton_scores=standard_carton_scores,
+        standard_carton_labels=standard_carton_labels,
+        density_scores=density_scores,
+        density_labels=density_labels,
+        associated_factories=get_associated_factories(supplier, report_month),
+        line_details=line_details,
+        line_totals=line_totals,
+        compliance_data=get_compliance_data(supplier, report_month),
+        transactions=transactions,
+        primark_logo=PRIMARK_LOGO,
+        allport_logo=ALLPORT_LOGO,
+        dean_moss_signature=DEAN_MOSS_SIGNATURE,
     )
-    env.globals['enumerate'] = enumerate
-    template = env.get_template("report.html.j2")
 
-    gauge = _make_gauge_arc(compliance_rate)
-
-    context = {
-        "supplier_name": supplier,
-        "month_name": report_month.strftime("%B"),
-        "month_num": report_month.month,
-        "year": report_month.year,
-        "release_date": datetime.now().strftime("%d %B %Y"),
-        "kpis": kpis,
-        "ranking": ranking,
-        "total_suppliers": total,
-        "shared": shared,
-        "local_rankings": local_rankings,
-        "multi_country": len(local_rankings) > 1,
-        "long_supplier_name": len(supplier) > 30,
-        "compliance_rate": compliance_rate,
-        "gauge": gauge,
-        "monthly_compliance_scores": monthly_compliance_scores,
-        "standard_carton_scores": standard_carton_scores,
-        "density_scores": density_scores,
-        "volume_scores": volume_scores,
-        "monthly_compliance_labels": monthly_compliance_labels,
-        "standard_carton_labels": standard_carton_labels,
-        "density_labels": density_labels,
-        "volume_labels": volume_labels,
-        "associated_factories": associated_factories,
-        "line_details": line_details,
-        "line_totals": line_totals,
-        "compliance_data": compliance_data,
-        "transactions": transactions,
-        "table_columns": table_columns,
-        "primark_logo": PRIMARK_LOGO,
-        "allport_logo": ALLPORT_LOGO,
-        "dean_moss_signature": DEAN_MOSS_SIGNATURE,
-    }
-
-    full_html = template.render(**context)
-
-    marker = '<div class="page-break-landscape"></div>'
-    if marker not in full_html:
+    if LANDSCAPE_MARKER not in full_html:
         return full_html, None
 
-    parts = full_html.split(marker)
-    portrait_html = parts[0]
-    landscape_body = parts[1]
+    portrait_html, landscape_body = full_html.split(LANDSCAPE_MARKER)[:2]
 
     landscape_html = f'''<!DOCTYPE html>
 <html>

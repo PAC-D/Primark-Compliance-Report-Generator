@@ -122,7 +122,6 @@ def suppliers_below(wb):
             "dest_po_count": ws.cell(row=row, column=5).value,
             "reflected_lines": ws.cell(row=row, column=6).value,
             "avg_3month": _pct(ws.cell(row=row, column=7).value),
-            "month_label": f"{MONTH_NAME} {YEAR}",
         })
     return suppliers
 
