@@ -11,8 +11,7 @@ from tps.db import get_session
 
 
 def classify_region(country: str) -> str:
-    """BD only for a listed BD country; everything else is CN.
-    (Report folders use the opposite default - see tps.common.report_region.)"""
+    """BD for a BD-region country, CN for any other (same rule as common.report_region)."""
     return "BD" if country in BD_REGION_COUNTRIES else "CN"
 
 

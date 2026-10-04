@@ -8,20 +8,15 @@ from tps.config import REPORT_MONTH_OFFSET
 
 # --- Regions ------------------------------------------------------------------
 
-CN_REGION_COUNTRIES = {"China", "Myanmar", "Cambodia", "Vietnam", "VietNam", "Indonesia"}
+# The only BD-region countries; every other country is CN region.
 BD_REGION_COUNTRIES = {"Bangladesh", "India", "Pakistan", "Sri Lanka", "Morocco", "Turkey"}
 
 
 def report_region(countries: Iterable[str]) -> str:
-    """Output folder for a supplier: 'CN Region' if any of its origin countries
-    is a CN-region country, else 'BD Region'.
-
-    The KPI report classifies single countries the other way round (BD only if
-    listed as BD) - see tps.metrics.kpi.classify_region. A country in neither
-    set therefore lands in different regions; kept as-is on purpose.
-    """
+    """'BD Region' when every origin country is a BD-region country, else
+    'CN Region' - so a supplier shipping from both regions counts as CN."""
     names = {str(c).strip() for c in countries}
-    return "CN Region" if names & CN_REGION_COUNTRIES else "BD Region"
+    return "BD Region" if names <= BD_REGION_COUNTRIES else "CN Region"
 
 
 # --- Supplier names -------------------------------------------------------------

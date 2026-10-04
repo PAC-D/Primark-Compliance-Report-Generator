@@ -66,7 +66,9 @@ def get_summary_country_compliance(report_month: date) -> list[dict]:
 
 
 def get_summary_country_monthly_trend(report_month: date) -> tuple[dict, list[str], list[str]]:
-    """Returns (country_data, labels, country_order) for 12-month compliance trend by country."""
+    """Returns (country_data, labels, country_order) for the 12-month compliance
+    trend by country. A month in which a country shipped nothing is None (a
+    blank cell), never 0%."""
     session = get_session()
     try:
         months_list = _chart_months(report_month)
@@ -74,9 +76,8 @@ def get_summary_country_monthly_trend(report_month: date) -> tuple[dict, list[st
         if not months_list:
             return ({"No Data": [0.0]}, ["No Data"], ["No Data"])
 
-        country_data = {}
-        country_order = []
-
+        # Insertion order = order countries first appear, which is country_order.
+        rates_by_country: dict[str, dict[date, float]] = {}
         for month_start in months_list:
             month_end = next_month_start(month_start)
             rows = session.execute(text("""
@@ -87,22 +88,13 @@ def get_summary_country_monthly_trend(report_month: date) -> tuple[dict, list[st
                 WHERE handover_date >= :start AND handover_date < :end
                 GROUP BY origin_country
             """), {"start": month_start, "end": month_end}).fetchall()
+            for row in rows:
+                rates_by_country.setdefault(row.country, {})[month_start] = (
+                    round(row.rate, 2) if row.rate else 0.0)
 
-            month_rates = {row.country: round(row.rate, 2) if row.rate else 0.0 for row in rows}
-
-            for country in month_rates:
-                if country not in country_order:
-                    country_order.append(country)
-                if country not in country_data:
-                    country_data[country] = []
-                country_data[country].append(month_rates[country])
-
-        all_countries = set(country_data.keys())
-        for country in all_countries:
-            while len(country_data[country]) < len(months_list):
-                country_data[country].insert(0, 0.0)
-
-        return (country_data, [month_label(m) for m in months_list], country_order)
+        country_data = {country: [rates.get(m) for m in months_list]
+                        for country, rates in rates_by_country.items()}
+        return (country_data, [month_label(m) for m in months_list], list(rates_by_country))
     finally:
         session.close()
 

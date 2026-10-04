@@ -217,9 +217,10 @@ def _build_country_trend_block(ws, country_data, chart_labels, country_order,
 
         rates = country_data.get(country, [])
         for j in range(len(chart_labels)):
-            rate = rates[j] if j < len(rates) else 0
+            rate = rates[j] if j < len(rates) else None
+            # No shipments that month: leave the cell blank so the chart shows a gap, not 0%.
             cell = ws.cell(row=row, column=label_col + 1 + j,
-                           value=(rate or 0) / 100.0)
+                           value=None if rate is None else rate / 100.0)
             cell.number_format = "0.0%"
 
     first_row = header_row + 1

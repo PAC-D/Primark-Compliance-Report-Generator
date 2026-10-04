@@ -142,3 +142,18 @@ class TestSummaryCountryMonthlyTrend:
         assert country_data == {"China": [90.0] * 3, "Bangladesh": [80.0] * 3}
         assert labels == ["Jan '26", "Feb '26", "Mar '26"]
         assert country_order == ["China", "Bangladesh"]
+
+    def test_month_without_data_stays_blank_in_its_own_column(self, summary_session):
+        china, india = _row(country="China", rate=90.0), _row(country="India", rate=70.0)
+        # India ships in Jan and Mar only; Vietnam only from Feb.
+        summary_session.execute.return_value.fetchall.side_effect = [
+            [china, india],
+            [china, _row(country="Vietnam", rate=50.0)],
+            [china, india, _row(country="Vietnam", rate=60.0)],
+        ]
+        with patch("tps.metrics.summary._chart_months",
+                   return_value=[date(2026, 1, 1), date(2026, 2, 1), date(2026, 3, 1)]):
+            country_data, _, country_order = summary.get_summary_country_monthly_trend(date(2026, 3, 1))
+        assert country_data["India"] == [70.0, None, 70.0]
+        assert country_data["Vietnam"] == [None, 50.0, 60.0]
+        assert country_order == ["China", "India", "Vietnam"]
