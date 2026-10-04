@@ -3,26 +3,27 @@
     python -m tps.extract monthly    one workbook with every row for a month
     python -m tps.extract supplier   one workbook per supplier, split by region
 
-Both write to output/Data_<Month>_<Year>/.
+Both write to output/<YYYY-MM Month>/Supplier Data/.
 """
 
 import argparse
 import calendar
 import sys
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
 
+from tps import config
 from tps.common import ask_report_month, normalise_supplier, report_region, safe_filename
-from tps.config import DATA_DIR, OUTPUT_DIR
 
 
 def load_month_files(year: int, month: int) -> pd.DataFrame:
     """Every bi-weekly source file for the month, concatenated."""
     mon = calendar.month_abbr[month]
-    files = list(DATA_DIR.glob(f"*_{year}_{mon}_*.xlsx"))
+    files = list(config.DATA_DIR.glob(f"*_{year}_{mon}_*.xlsx"))
     if not files:
-        raise FileNotFoundError(f"No files found for {mon}/{year} in {DATA_DIR}")
+        raise FileNotFoundError(f"No files found for {mon}/{year} in {config.DATA_DIR}")
     print(f"Found {len(files)} file(s) for {month:02d}/{year}")
 
     dfs = []
@@ -34,7 +35,7 @@ def load_month_files(year: int, month: int) -> pd.DataFrame:
 
 
 def _month_dir(year: int, month: int) -> Path:
-    path = OUTPUT_DIR / f"Data_{calendar.month_name[month]}_{year}"
+    path = config.month_folder(date(year, month, 1)) / config.SUPPLIER_DATA
     path.mkdir(parents=True, exist_ok=True)
     return path
 

@@ -54,10 +54,11 @@ PostgreSQL database.
 │   │   ├── supplier_report.py  # Per-supplier report HTML
 │   │   ├── summary_excel.py    # Summary workbook (openpyxl)
 │   │   ├── kpi_report.py       # KPI report HTML
-│   │   ├── html.py             # Jinja environment + embedded logos
-│   │   └── pdf.py              # Playwright HTML -> PDF, page numbers
+│   │   ├── html.py             # Jinja environment + embedded logos, fonts, Chart.js, Tailwind CSS
+│   │   ├── pdf.py              # Playwright HTML -> PDF, page numbers
+│   │   └── build_assets.py     # Rebuilds assets/vendor/ (run after adding Tailwind classes)
 │   ├── templates/              # Jinja2 report templates
-│   └── assets/                 # Logos and signature
+│   └── assets/                 # Logos, signature; vendor/ = Chart.js, Inter font, prebuilt Tailwind CSS
 ├── tests/                      # pytest suite
 ├── docs/superpowers/           # Design specs and implementation plans
 ├── config.yaml.example         # Copy to config.yaml and fill in DB credentials
@@ -67,6 +68,18 @@ PostgreSQL database.
 
 Created locally at runtime (gitignored): `config.yaml`, `data/` (raw source
 files), `output/` (all generated reports and extracts), `logs/`.
+
+`output/` has one folder per reporting month:
+
+```
+output/
+  2026-08 August/
+    Supplier Reports/BD Region/*.pdf, CN Region/*.pdf
+    Supplier Data/BD Region/*.xlsx, CN Region/*.xlsx, All_Suppliers_Aug_2026.xlsx
+    Summary_Report_August_2026.xlsx
+    KPI_Report_August_2026.pdf
+  _archive/        old previews and one-off files
+```
 
 ## Tech Stack
 
@@ -120,18 +133,22 @@ It only listens on this PC. Stop it with Ctrl+C in the terminal.
 
 | Section | Action | What it does |
 |---------|--------|--------------|
-| Reports | Generate supplier reports | One compliance PDF per supplier with data that month, in `output/Report_<Month>_<Year>/<BD or CN> Region/`. |
-| Reports | Generate summary workbook | `output/Summary_Report_<Month>_<Year>.xlsx`. |
-| Reports | Generate KPI report | `output/KPI_Report_<Month>_<Year>.pdf`. |
-| Reports | Extract supplier data | One workbook per supplier from the raw files in `data/` (no database). |
+| Month | Supplier Reports | One compliance PDF per supplier with data that month, in `<month>/Supplier Reports/<BD or CN> Region/`. About 3 minutes for 127 suppliers. |
+| Month | Summary Workbook | `<month>/Summary_Report_<Month>_<Year>.xlsx`. |
+| Month | KPI Report | `<month>/KPI_Report_<Month>_<Year>.pdf`. |
+| Month | Supplier Data | One workbook per supplier from the raw files in `data/` (no database), in `<month>/Supplier Data/`. |
 | Data | Load transaction files | Upload bi-weekly exports; loads them into `raw_data` and copies them into `data/`. Files already loaded are skipped unless "re-load" is ticked; re-loading replaces a file's rows, it never duplicates them. |
 | Data | Import supplier emails | Replace the stored supplier emails with a "Supplier Name / Email" workbook. |
 | Data | Clear database | Delete all rows from `raw_data` and `supplier_emails` (schema kept), optionally reloading `data/`. |
 | — | Recent log | The last 50 lines of `logs/run.log`. |
 
-The report month defaults to the latest month with data. Jobs run one at a
-time; the page shows progress, then download links (or an "Open folder"
-button for the supplier PDFs).
+The page opens on the latest month with data and shows, for each output,
+whether it exists and when it was last generated. Jobs run one at a time with
+a progress bar and a Cancel button; when done, the page offers a download or
+"Show in Folder". Light and dark appearance follow the system setting.
+
+Report PDFs render 4 at a time (`PDF_WORKERS` in `tps/actions.py`), each
+worker with its own headless browser and nothing loaded from the internet.
 
 Regions: Bangladesh, India, Pakistan, Sri Lanka, Morocco and Turkey are BD;
 every other country is CN; a supplier with countries from both is CN.
@@ -139,8 +156,8 @@ every other country is CN; a supplier with countries from both is CN.
 ### Extracts without the database
 
 ```bash
-python -m tps.extract monthly    # output/Data_<Month>_<Year>/All_Suppliers_<Mon>_<Year>.xlsx
-python -m tps.extract supplier   # output/Data_<Month>_<Year>/<BD or CN> Region/<Supplier>_<Month>_<Year>.xlsx
+python -m tps.extract monthly    # <month>/Supplier Data/All_Suppliers_<Mon>_<Year>.xlsx
+python -m tps.extract supplier   # <month>/Supplier Data/<BD or CN> Region/<Supplier>_<Month>_<Year>.xlsx
 ```
 
 Both read the bi-weekly files in `data/` directly.

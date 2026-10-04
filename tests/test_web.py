@@ -15,7 +15,7 @@ UPLOAD_NAME = "Multi Search (Packaging Management)_2026_Jul_1-15.xlsx"
 def output(tmp_path):
     out = tmp_path / "output"
     out.mkdir()
-    with patch("tps.actions.OUTPUT_DIR", out):
+    with patch("tps.config.OUTPUT_DIR", out):
         yield out
 
 
@@ -35,7 +35,7 @@ def test_index_defaults_to_latest_month_with_data(client):
     with patch("tps.actions.latest_data_month", return_value=date(2026, 8, 1)):
         page = client.get("/").get_data(as_text=True)
     assert 'value="2026-08"' in page
-    assert "Generate KPI report" in page
+    assert "KPI Report" in page
 
 
 def test_kpi_job_links_its_pdf(client, output):
@@ -71,6 +71,30 @@ def test_second_job_is_refused_while_one_runs(client, runner):
     response = client.post("/jobs/summary", data={"month": "2026-07"})
     assert response.status_code == 409
     assert "Supplier reports" in response.get_json()["error"]
+
+
+def test_cancel_stops_a_job_at_its_next_step(client, runner):
+    def long_job(report_month, progress):
+        progress(1, 3, "first")
+        runner.cancel()  # as if the Cancel button was pressed now
+        progress(2, 3, "second")
+        raise AssertionError("not reached")
+
+    with patch("tps.actions.generate_supplier_reports", side_effect=long_job):
+        job = client.post("/jobs/supplier-reports", data={"month": "2026-07"}).get_json()
+    assert job["state"] == "cancelled"
+    assert job["done"] == 1
+
+
+def test_month_status_paths_are_relative_to_output(client, output):
+    kpi = output / "2026-08 August" / "KPI_Report_August_2026.pdf"
+    with patch("tps.actions.month_status", return_value={
+            "total_suppliers": 1, "total_factories": 1,
+            "outputs": {"kpi": {"count": 1, "updated": "2026-10-04T20:00:00", "file": kpi},
+                        "summary": None}}):
+        status = client.get("/month/2026-08").get_json()
+    assert status["outputs"]["kpi"]["file"] == "2026-08 August/KPI_Report_August_2026.pdf"
+    assert status["outputs"]["summary"] is None
 
 
 def test_upload_keeps_original_file_names(client):

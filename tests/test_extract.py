@@ -10,9 +10,9 @@ def _source_file(tmp_path, monkeypatch, supplier, country):
     pd.DataFrame({"Supplier": [supplier], "Origin Country": [country]}).to_excel(
         data_dir / "Multi Search (Packaging Management)_2026_May_1-15.xlsx", index=False
     )
-    monkeypatch.setattr(extract, "DATA_DIR", data_dir)
-    monkeypatch.setattr(extract, "OUTPUT_DIR", tmp_path / "output")
-    return tmp_path / "output" / "Data_May_2026"
+    monkeypatch.setattr("tps.config.DATA_DIR", data_dir)
+    monkeypatch.setattr("tps.config.OUTPUT_DIR", tmp_path / "output")
+    return tmp_path / "output" / "2026-05 May" / "Supplier Data"
 
 
 def test_supplier_filename_uses_full_month_name(tmp_path, monkeypatch):

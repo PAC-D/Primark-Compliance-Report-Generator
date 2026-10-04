@@ -11,7 +11,7 @@ from tps import actions
 def temp_output(tmp_path):
     """Nothing here may write to the real output/ folder."""
     out = tmp_path / "output"
-    with patch("tps.actions.OUTPUT_DIR", out):
+    with patch("tps.config.OUTPUT_DIR", out):
         yield out
 
 
@@ -62,7 +62,7 @@ class TestClearDatabase:
     def test_clear_then_reload_data_folder(self, tmp_path):
         (tmp_path / "x.xlsx").touch()
         with patch("tps.actions.clear_all_tables"), \
-             patch("tps.actions.DATA_DIR", tmp_path), \
+             patch("tps.config.DATA_DIR", tmp_path), \
              patch("tps.actions.load_transaction_files",
                    return_value=actions.Result("Loaded 1 of 1 file(s)")) as load:
             actions.clear_database(reload=True)
@@ -83,17 +83,33 @@ class TestSupplierReports:
         with patch("tps.actions.get_suppliers_for_month", return_value=["ACME", "BAD LTD"]), \
              patch("tps.actions.get_supplier_kpis", return_value={"origin_country": "Bangladesh, China"}), \
              patch("tps.actions.render_report", side_effect=render), \
-             patch("tps.actions.html_to_pdf_mixed") as pdf, \
-             patch("tps.actions.close_browser") as close:
+             patch("tps.actions.html_to_pdf_mixed") as pdf:
             result = actions.generate_supplier_reports(date(2026, 7, 1), progress)
 
-        expected = temp_output / "Report_July_2026" / "CN Region" / "ACME_July_2026.pdf"
-        pdf.assert_called_once_with("<p>", "<l>", str(expected))
-        assert result.folder == temp_output / "Report_July_2026"
+        folder = temp_output / "2026-07 July" / "Supplier Reports"
+        pdf.assert_called_once_with("<p>", "<l>", str(folder / "CN Region" / "ACME_July_2026.pdf"))
+        assert result.folder == folder
         assert result.summary == "Generated 1 reports, 1 skipped"
         assert result.details == ["Skipped BAD LTD: boom"]
-        progress.assert_any_call(0, 2, "ACME")
-        close.assert_called_once()
+        assert progress.call_args_list[-1].args[:2] == (2, 2)
+
+    def test_cancel_stops_handing_out_suppliers(self, temp_output):
+        class Stop(Exception):
+            pass
+
+        def progress(done, total, message):
+            if done == 1:
+                raise Stop  # what the job runner does after Cancel
+
+        suppliers = [f"S{i}" for i in range(40)]
+        with patch("tps.actions.PDF_WORKERS", 1), \
+             patch("tps.actions.get_suppliers_for_month", return_value=suppliers), \
+             patch("tps.actions.get_supplier_kpis", return_value={"origin_country": "India"}), \
+             patch("tps.actions.render_report", return_value=("<p>", "<l>")), \
+             patch("tps.actions.html_to_pdf_mixed") as pdf:
+            with pytest.raises(Stop):
+                actions.generate_supplier_reports(date(2026, 7, 1), progress)
+        assert pdf.call_count < len(suppliers)
 
     def test_month_without_suppliers(self):
         with patch("tps.actions.get_suppliers_for_month", return_value=[]):
@@ -107,7 +123,7 @@ class TestKpiReport:
              patch("tps.actions.html_to_pdf") as pdf, \
              patch("tps.actions.close_browser"):
             result = actions.generate_kpi_report(date(2026, 6, 1))
-        path = temp_output / "KPI_Report_June_2026.pdf"
+        path = temp_output / "2026-06 June" / "KPI_Report_June_2026.pdf"
         pdf.assert_called_once_with("<html>KPI</html>", str(path))
         assert result.files == [path]
 
@@ -123,7 +139,7 @@ def test_summary_report_saved_to_output(temp_output):
     workbook = MagicMock()
     with patch("tps.actions.render_summary_excel", return_value=workbook):
         result = actions.generate_summary_report(date(2026, 8, 1))
-    path = temp_output / "Summary_Report_August_2026.xlsx"
+    path = temp_output / "2026-08 August" / "Summary_Report_August_2026.xlsx"
     workbook.save.assert_called_once_with(path)
     assert result.files == [path]
 
@@ -137,7 +153,24 @@ def test_latest_data_month_falls_back_to_config_default():
 def test_tail_log(tmp_path):
     log = tmp_path / "run.log"
     log.write_text("\n".join(f"line {i}" for i in range(80)))
-    with patch("tps.actions.LOG_FILE", log):
+    with patch("tps.config.LOG_FILE", log):
         assert actions.tail_log(3) == ["line 77", "line 78", "line 79"]
-    with patch("tps.actions.LOG_FILE", tmp_path / "missing.log"):
+    with patch("tps.config.LOG_FILE", tmp_path / "missing.log"):
         assert actions.tail_log() == []
+
+
+def test_month_status_reads_the_month_folder(temp_output):
+    month = temp_output / "2026-08 August"
+    (month / "Supplier Reports" / "BD Region").mkdir(parents=True)
+    (month / "Supplier Reports" / "BD Region" / "A_August_2026.pdf").write_bytes(b"%PDF")
+    (month / "Supplier Reports" / "BD Region" / "B_August_2026.pdf").write_bytes(b"%PDF")
+    (month / "KPI_Report_August_2026.pdf").write_bytes(b"%PDF")
+
+    with patch("tps.actions.get_summary_sources", return_value={"total_suppliers": 2, "total_factories": 3}):
+        status = actions.month_status(date(2026, 8, 1))
+
+    assert status["total_suppliers"] == 2
+    assert status["outputs"]["supplier-reports"]["count"] == 2
+    assert status["outputs"]["kpi"]["file"] == month / "KPI_Report_August_2026.pdf"
+    assert status["outputs"]["summary"] is None
+    assert status["outputs"]["extract"] is None

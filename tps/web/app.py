@@ -8,23 +8,27 @@ from pathlib import Path
 
 from flask import Flask, abort, jsonify, render_template, request, send_from_directory
 
-from tps import actions
+from tps import actions, config
 from tps.common import safe_filename
-from tps.reports.html import ALLPORT_LOGO, PRIMARK_LOGO
 from tps.web.jobs import Busy, Job, JobRunner
 
 # Month-based jobs: URL name -> (label, actions function name).
 MONTH_JOBS = {
-    "supplier-reports": ("Supplier reports", "generate_supplier_reports"),
-    "summary": ("Summary workbook", "generate_summary_report"),
-    "kpi": ("KPI report", "generate_kpi_report"),
-    "extract": ("Supplier data extract", "extract_supplier_data"),
+    "supplier-reports": ("Supplier Reports", "generate_supplier_reports"),
+    "summary": ("Summary Workbook", "generate_summary_report"),
+    "kpi": ("KPI Report", "generate_kpi_report"),
+    "extract": ("Supplier Data", "extract_supplier_data"),
 }
 EXCEL_SUFFIXES = {".xlsx", ".xls"}
 
 
+def _month(value: str) -> date:
+    """<input type="month"> and the URLs use YYYY-MM."""
+    return date.fromisoformat(value + "-01")
+
+
 def _output_relative(path: Path) -> str:
-    return Path(path).resolve().relative_to(actions.OUTPUT_DIR.resolve()).as_posix()
+    return Path(path).resolve().relative_to(config.OUTPUT_DIR.resolve()).as_posix()
 
 
 def _job_json(job: Job | None) -> dict | None:
@@ -34,6 +38,7 @@ def _job_json(job: Job | None) -> dict | None:
     return {
         "id": job.id, "name": job.name, "state": job.state,
         "done": job.done, "total": job.total, "message": job.message, "error": job.error,
+        "cancelling": job.cancel_requested,
         "result": result and {
             "summary": result.summary,
             "details": result.details,
@@ -78,21 +83,30 @@ def create_app(runner: JobRunner | None = None) -> Flask:
         except Busy as busy:
             if upload_folder:
                 shutil.rmtree(upload_folder, ignore_errors=True)
-            return jsonify(error=f"Wait for '{busy}' to finish first."), 409
+            return jsonify(error=f"{busy} is still running. Wait for it to finish, or cancel it."), 409
         return jsonify(_job_json(job))
 
     @app.get("/")
     def index():
-        return render_template(
-            "index.html",
-            month=f"{actions.latest_data_month():%Y-%m}",
-            job=_job_json(runner.current),
-            primark_logo=PRIMARK_LOGO,
-            allport_logo=ALLPORT_LOGO,
-        )
+        return render_template("index.html", month=f"{actions.latest_data_month():%Y-%m}",
+                               job=_job_json(runner.current))
+
+    @app.get("/month/<value>")
+    def month_status(value):
+        status = actions.month_status(_month(value))
+        for item in status["outputs"].values():
+            for key in ("folder", "file"):
+                if item and key in item:
+                    item[key] = _output_relative(item[key])
+        return jsonify(status)
 
     @app.get("/job")
     def current_job():
+        return jsonify(_job_json(runner.current))
+
+    @app.post("/job/cancel")
+    def cancel_job():
+        runner.cancel()
         return jsonify(_job_json(runner.current))
 
     @app.post("/jobs/<kind>")
@@ -100,17 +114,16 @@ def create_app(runner: JobRunner | None = None) -> Flask:
         if kind not in MONTH_JOBS:
             abort(404)
         label, fn_name = MONTH_JOBS[kind]
-        # <input type="month"> sends YYYY-MM.
-        report_month = date.fromisoformat(request.form["month"] + "-01")
-        return start(f"{label} - {report_month:%B %Y}", getattr(actions, fn_name), report_month)
+        report_month = _month(request.form["month"])
+        return start(f"{label} · {report_month:%B %Y}", getattr(actions, fn_name), report_month)
 
     @app.post("/jobs/upload")
     def upload():
         folder, paths = _save_uploads(request.files.getlist("files"))
         if not paths:
             shutil.rmtree(folder, ignore_errors=True)
-            return jsonify(error="Choose at least one .xlsx file."), 400
-        return start("Load transaction files", actions.load_transaction_files, paths,
+            return jsonify(error="Choose at least one Excel file (.xlsx)."), 400
+        return start("Load Transaction Files", actions.load_transaction_files, paths,
                      reprocess="reprocess" in request.form, upload_folder=folder)
 
     @app.post("/jobs/emails")
@@ -118,12 +131,12 @@ def create_app(runner: JobRunner | None = None) -> Flask:
         folder, paths = _save_uploads(request.files.getlist("file"))
         if not paths:
             shutil.rmtree(folder, ignore_errors=True)
-            return jsonify(error="Choose a .xlsx file."), 400
-        return start("Import supplier emails", actions.import_emails, paths[0], upload_folder=folder)
+            return jsonify(error="Choose an Excel file (.xlsx)."), 400
+        return start("Import Supplier Emails", actions.import_emails, paths[0], upload_folder=folder)
 
     @app.post("/jobs/clear")
     def clear():
-        return start("Clear database", actions.clear_database, reload="reload" in request.form)
+        return start("Clear Database", actions.clear_database, reload="reload" in request.form)
 
     @app.get("/logs")
     def logs():
@@ -131,12 +144,12 @@ def create_app(runner: JobRunner | None = None) -> Flask:
 
     @app.get("/output/<path:name>")
     def output_file(name):
-        return send_from_directory(actions.OUTPUT_DIR, name, as_attachment=True)
+        return send_from_directory(config.OUTPUT_DIR, name, as_attachment=True)
 
     @app.post("/open-folder")
     def open_folder():
-        path = (actions.OUTPUT_DIR / request.form.get("path", "")).resolve()
-        if not path.is_relative_to(actions.OUTPUT_DIR.resolve()) or not path.is_dir():
+        path = (config.OUTPUT_DIR / request.form.get("path", "")).resolve()
+        if not path.is_relative_to(config.OUTPUT_DIR.resolve()) or not path.is_dir():
             abort(404)
         os.startfile(path)  # ponytail: Windows-only; fine while the app runs locally
         return "", 204

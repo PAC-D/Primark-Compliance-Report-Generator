@@ -5,16 +5,18 @@ progress(done, total, message); every operation returns a Result.
 """
 
 import logging
+import queue
+import threading
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
+from tps import config
 from tps.common import get_report_month, report_region, safe_filename
-from tps.config import DATA_DIR, LOG_FILE, OUTPUT_DIR
 from tps.db import clear_all_tables
 from tps.extract import extract_by_supplier
 from tps.ingest import copy_to_data, import_supplier_emails, is_file_processed, process_file
-from tps.metrics.summary import get_latest_data_month
+from tps.metrics.summary import get_latest_data_month, get_summary_sources
 from tps.metrics.supplier import get_supplier_kpis, get_suppliers_for_month
 from tps.reports.kpi_report import render_kpi_report
 from tps.reports.pdf import close_browser, html_to_pdf, html_to_pdf_mixed
@@ -22,6 +24,11 @@ from tps.reports.summary_excel import render_summary_excel
 from tps.reports.supplier_report import render_report
 
 logger = logging.getLogger(__name__)
+
+# ponytail: 4 render threads, each driving its own headless Chromium (~200 MB).
+# Chromium does the heavy lifting in its own processes, so threads parallelise fine;
+# raise on a machine with more cores and memory, lower if it struggles.
+PDF_WORKERS = 4
 
 
 @dataclass
@@ -36,9 +43,42 @@ def _no_progress(done: int, total: int, message: str) -> None:
     pass
 
 
+def summary_path(report_month: date) -> Path:
+    return config.month_folder(report_month) / f"Summary_Report_{report_month:%B_%Y}.xlsx"
+
+
+def kpi_path(report_month: date) -> Path:
+    return config.month_folder(report_month) / f"KPI_Report_{report_month:%B_%Y}.pdf"
+
+
 def latest_data_month() -> date:
     """Most recent month with handover data; the config default when the DB is empty."""
     return get_latest_data_month() or get_report_month()
+
+
+def month_status(report_month: date) -> dict:
+    """What exists for a month: data in the DB, and which outputs are on disk."""
+    folder = config.month_folder(report_month)
+
+    def stamp(paths, **extra):
+        paths = list(paths)
+        if not paths:
+            return None
+        newest = max(p.stat().st_mtime for p in paths)
+        return {"count": len(paths), "updated": datetime.fromtimestamp(newest).isoformat(), **extra}
+
+    reports = folder / config.SUPPLIER_REPORTS
+    data = folder / config.SUPPLIER_DATA
+    summary, kpi = summary_path(report_month), kpi_path(report_month)
+    return {
+        **get_summary_sources(report_month),
+        "outputs": {
+            "supplier-reports": stamp(reports.glob("*/*.pdf"), folder=reports),
+            "summary": stamp([summary] if summary.exists() else [], file=summary),
+            "kpi": stamp([kpi] if kpi.exists() else [], file=kpi),
+            "extract": stamp(data.glob("*/*.xlsx"), folder=data),
+        },
+    }
 
 
 def load_transaction_files(paths, reprocess: bool = False, copy: bool = True,
@@ -74,44 +114,72 @@ def clear_database(reload: bool = False, progress=_no_progress) -> Result:
     if not reload:
         return Result("Database cleared (tables kept)")
 
-    files = sorted(DATA_DIR.glob("*.xlsx")) + sorted(DATA_DIR.glob("*.xls"))
+    files = sorted(config.DATA_DIR.glob("*.xlsx")) + sorted(config.DATA_DIR.glob("*.xls"))
     loaded = load_transaction_files(files, reprocess=True, copy=False, progress=progress)
     return Result(f"Database cleared, then {loaded.summary.lower()}", details=loaded.details)
 
 
+def _supplier_pdf(supplier: str, report_month: date, folder: Path) -> Path:
+    """One supplier's compliance PDF. Runs on a render thread with its own browser."""
+    origin_country = get_supplier_kpis(supplier, report_month).get("origin_country", "")
+    region_folder = folder / report_region(origin_country.split(","))
+    region_folder.mkdir(parents=True, exist_ok=True)
+    output_path = region_folder / f"{safe_filename(supplier)}_{report_month:%B_%Y}.pdf"
+
+    portrait_html, landscape_html = render_report(supplier, report_month)
+    # Drop the old copy first so a failed run never leaves a stale report behind.
+    output_path.unlink(missing_ok=True)
+    html_to_pdf_mixed(portrait_html, landscape_html, str(output_path))
+    return output_path
+
+
 def generate_supplier_reports(report_month: date, progress=_no_progress) -> Result:
-    """One compliance PDF per supplier with data in the month, under
-    output/Report_<Month>_<Year>/<BD or CN> Region/."""
+    """One compliance PDF per supplier with data in the month, rendered
+    PDF_WORKERS at a time, under <month>/Supplier Reports/<BD or CN> Region/."""
     suppliers = get_suppliers_for_month(report_month)
     if not suppliers:
         return Result(f"No suppliers with data in {report_month:%B %Y}")
 
-    file_date = report_month.strftime("%B_%Y")
-    folder = OUTPUT_DIR / f"Report_{file_date}"
+    folder = config.month_folder(report_month) / config.SUPPLIER_REPORTS
     logger.info(f"Starting report generation for {len(suppliers)} suppliers")
-    generated, details = 0, []
-    try:
-        for i, supplier in enumerate(suppliers):
-            progress(i, len(suppliers), supplier)
-            logger.info(f"Generating report {i + 1}/{len(suppliers)} for: {supplier}")
-            try:
-                origin_country = get_supplier_kpis(supplier, report_month).get("origin_country", "")
-                region_folder = folder / report_region(origin_country.split(","))
-                region_folder.mkdir(parents=True, exist_ok=True)
-                output_path = region_folder / f"{safe_filename(supplier)}_{file_date}.pdf"
+    todo, finished, stop = queue.SimpleQueue(), queue.SimpleQueue(), threading.Event()
+    for supplier in suppliers:
+        todo.put(supplier)
 
-                portrait_html, landscape_html = render_report(supplier, report_month)
-                # Drop the old copy first so a failed run never leaves a stale report behind.
-                output_path.unlink(missing_ok=True)
-                html_to_pdf_mixed(portrait_html, landscape_html, str(output_path))
-                logger.info(f"Report saved: {output_path}")
+    def worker():
+        # Each thread has its own browser (pdf.py), closed here in the same thread.
+        try:
+            while not stop.is_set():
+                try:
+                    supplier = todo.get_nowait()
+                except queue.Empty:
+                    return
+                try:
+                    finished.put((supplier, _supplier_pdf(supplier, report_month, folder), None))
+                except Exception as e:
+                    finished.put((supplier, None, e))
+        finally:
+            close_browser()
+
+    workers = [threading.Thread(target=worker, daemon=True) for _ in range(min(PDF_WORKERS, len(suppliers)))]
+    for w in workers:
+        w.start()
+    generated, details = 0, []
+    progress(0, len(suppliers), "Starting renderers")
+    try:
+        for done in range(1, len(suppliers) + 1):
+            supplier, path, error = finished.get()
+            if error is None:
+                logger.info(f"Report saved: {path}")
                 generated += 1
-            except Exception as e:
-                logger.error(f"Error generating report for {supplier}: {e}")
-                details.append(f"Skipped {supplier}: {e}")
+            else:
+                logger.error(f"Error generating report for {supplier}: {error}")
+                details.append(f"Skipped {supplier}: {error}")
+            progress(done, len(suppliers), supplier)  # raises if cancelled
     finally:
-        # Playwright's sync API is bound to the thread that started it.
-        close_browser()
+        stop.set()  # on cancel: workers finish their current supplier, then stop
+        for w in workers:
+            w.join()
 
     summary = f"Generated {generated} reports, {len(details)} skipped"
     logger.info(summary)
@@ -119,25 +187,26 @@ def generate_supplier_reports(report_month: date, progress=_no_progress) -> Resu
 
 
 def generate_summary_report(report_month: date, progress=_no_progress) -> Result:
-    progress(0, 1, "Rendering summary workbook")
+    progress(0, 1, "Building the workbook")
     wb = render_summary_excel(report_month)
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    path = OUTPUT_DIR / f"Summary_Report_{report_month:%B_%Y}.xlsx"
+    path = summary_path(report_month)
+    path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(path)
     logger.info(f"Summary report saved: {path}")
-    return Result(f"Summary report for {report_month:%B %Y}", files=[path])
+    return Result(f"Summary workbook for {report_month:%B %Y}", files=[path])
 
 
 def generate_kpi_report(report_month: date, progress=_no_progress) -> Result:
     """Raises ValueError when the month has no data."""
-    progress(0, 1, "Rendering KPI report")
+    progress(0, 1, "Rendering the PDF")
     html = render_kpi_report(report_month)
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    path = OUTPUT_DIR / f"KPI_Report_{report_month:%B_%Y}.pdf"
+    path = kpi_path(report_month)
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.unlink(missing_ok=True)
     try:
         html_to_pdf(html, str(path))
     finally:
+        # Playwright's sync API is bound to the thread that started it.
         close_browser()
     logger.info(f"KPI report saved: {path}")
     return Result(f"KPI report for {report_month:%B %Y}", files=[path])
@@ -146,7 +215,7 @@ def generate_kpi_report(report_month: date, progress=_no_progress) -> Result:
 def extract_supplier_data(report_month: date, progress=_no_progress) -> Result:
     progress(0, 1, "Writing one workbook per supplier")
     folder = extract_by_supplier(report_month.year, report_month.month)
-    return Result(f"Supplier workbooks for {report_month:%B %Y}", folder=folder)
+    return Result(f"Supplier data for {report_month:%B %Y}", folder=folder)
 
 
 def import_emails(path, progress=_no_progress) -> Result:
@@ -157,6 +226,6 @@ def import_emails(path, progress=_no_progress) -> Result:
 
 def tail_log(lines: int = 50) -> list[str]:
     try:
-        return LOG_FILE.read_text(errors="replace").splitlines()[-lines:]
+        return config.LOG_FILE.read_text(errors="replace").splitlines()[-lines:]
     except FileNotFoundError:
         return []
