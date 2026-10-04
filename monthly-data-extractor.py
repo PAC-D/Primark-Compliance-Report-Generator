@@ -10,7 +10,7 @@ import pandas as pd
 from pathlib import Path
 import sys
 
-from supplier_data_extractor.safe_filename import safe_filename
+from safe_filename import safe_filename
 
 CN_REGION_COUNTRIES = {"China", "Myanmar", "Cambodia", "Vietnam", "VietNam", "Indonesia"}
 

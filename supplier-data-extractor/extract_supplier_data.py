@@ -12,7 +12,10 @@ from pathlib import Path
 import re
 import sys
 
+sys.path.insert(0, str(Path(__file__).parent.parent / "tps-pipeline"))
+
 from safe_filename import safe_filename
+from supplier_normalisation import normalise_supplier
 
 CN_REGION_COUNTRIES = {"China", "Myanmar", "Cambodia", "Vietnam", "VietNam", "Indonesia"}
 
@@ -81,6 +84,7 @@ def extract_supplier_data(year, month):
         print(f"Loaded: {f.name} ({len(df)} rows)")
     
     combined = pd.concat(dfs, ignore_index=True)
+    combined['Supplier'] = combined['Supplier'].apply(lambda x: normalise_supplier(str(x)) if pd.notna(x) else x)
     print(f"Total combined rows: {len(combined)}")
     print(f"Unique suppliers: {combined['Supplier'].nunique()}")
     
@@ -96,7 +100,7 @@ def extract_supplier_data(year, month):
         region_dir.mkdir(exist_ok=True)
         
         safe_name = safe_filename(supplier)
-        filename = f"{safe_name}_{month:02d}_{year}.xlsx"
+        filename = f"{safe_name}_{MONTH_NAMES[month]}_{year}.xlsx"
         output_path = region_dir / filename
         group.to_excel(output_path, index=False)
         if region == "CN Region":

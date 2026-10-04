@@ -1,68 +1,87 @@
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.worksheet.table import Table, TableColumn, TableStyleInfo
+
+HEADER_FILL = PatternFill(start_color="156082", end_color="156082", fill_type="solid")
+HEADER_FONT = Font(bold=True, size=10, color="FFFFFF")
+
+CENTER = Alignment(horizontal="center")
+CENTER_MIDDLE = Alignment(horizontal="center", vertical="center")
+
+HEADERS = ["Sl ", "Origin Country ", "Supplier Name ", "No of Factories ",
+           "Destination PO Qty ", "Reflected Lines ", "Compliance Score ", "Email "]
+
+# Header cells that are explicitly centred; the rest keep the default alignment.
+CENTERED_HEADERS = {2, 4, 5, 6, 7}
+
+WIDTHS = {"A": 5.0, "B": 22.0, "C": 45.0, "D": 17.45,
+          "E": 16.63, "F": 17.18, "G": 19.63, "H": 92.82}
 
 
-def _make_thin_border():
-    thin = Side(style='thin')
-    return Border(left=thin, right=thin, top=thin, bottom=thin)
-
-
-def build_follow_up_required_sheet(wb, suppliers_below, email_map=None):
+def build_follow_up_required_sheet(wb, suppliers_below, email_map=None,
+                                   month_label=None):
     if email_map is None:
         email_map = {}
     ws = wb.create_sheet("Follow-Up Required")
     ws.sheet_view.showGridLines = False
 
-    ws.merge_cells("A1:H1")
+    # get_suppliers_below_threshold() does not carry a month, so the caller
+    # passes it in; the per-row key is only a fallback for older callers.
+    if month_label is None and suppliers_below:
+        month_label = suppliers_below[0].get("month_label")
+
     title = "Follow-Up Required (Avg. Compliance <40% – Last 3 Months)"
-    if suppliers_below:
-        first = suppliers_below[0]
-        if "month_label" in first:
-            title = f"{title} – {first['month_label']}"
+    if month_label:
+        title = f"{title} – {month_label}"
+
+    ws.merge_cells("A1:H1")
     ws["A1"] = title
     ws["A1"].font = Font(bold=True, size=13, color="1F4E79")
-    ws["A1"].alignment = Alignment(horizontal="left", vertical="center")
+    ws["A1"].alignment = CENTER_MIDDLE
+    ws.row_dimensions[1].height = 17.0
 
-    headers = ["Sl ", "Origin Country ", "Supplier Name ", "No of Factories ",
-               "Destination PO Qty ", "Reflected Lines ", "Compliance Score ", "Email "]
-    for col, h in enumerate(headers, 1):
-        cell = ws.cell(row=2, column=col, value=h)
-        cell.font = Font(bold=True, color="FFFFFF", size=10)
-        cell.fill = PatternFill(start_color="156082", end_color="156082", fill_type="solid")
-        cell.alignment = Alignment(horizontal="center" if col == 1 else "left")
-        cell.border = _make_thin_border()
+    for col, label in enumerate(HEADERS, 1):
+        cell = ws.cell(row=2, column=col, value=label)
+        cell.font = HEADER_FONT
+        cell.fill = HEADER_FILL
+        if col in CENTERED_HEADERS:
+            cell.alignment = CENTER
 
     for i, supplier in enumerate(suppliers_below):
         row = 3 + i
-        ws.cell(row=row, column=1, value=supplier["sl"])
+
+        index_cell = ws.cell(row=row, column=1, value=supplier["sl"])
+        index_cell.font = Font(size=10)
+        index_cell.alignment = CENTER
+
         ws.cell(row=row, column=2, value=supplier["origin_country"])
         ws.cell(row=row, column=3, value=supplier["supplier"])
-        ws.cell(row=row, column=4, value=supplier["factory_count"])
-        ws.cell(row=row, column=5, value=supplier["dest_po_count"])
-        ws.cell(row=row, column=6, value=supplier["reflected_lines"])
+
+        for col, field in ((4, "factory_count"), (5, "dest_po_count"),
+                           (6, "reflected_lines")):
+            cell = ws.cell(row=row, column=col, value=supplier[field])
+            cell.alignment = CENTER
 
         rate = supplier.get("avg_3month")
         if rate is None:
             rate = supplier.get("compliance_rate", 0)
-        ws.cell(row=row, column=7, value=rate / 100.0)
-        ws.cell(row=row, column=7).number_format = "0.0%"
-        if rate < 30:
-            ws.cell(row=row, column=7).font = Font(color="DC2626", bold=True)
-        elif rate < 40:
-            ws.cell(row=row, column=7).font = Font(color="EA580C", bold=True)
+        rate_cell = ws.cell(row=row, column=7, value=rate / 100.0)
+        rate_cell.number_format = "0%"
+        rate_cell.alignment = CENTER
 
-        email = email_map.get(supplier["supplier"].strip().lower(), "")
-        ws.cell(row=row, column=8, value=email)
+        ws.cell(row=row, column=8,
+                value=email_map.get(supplier["supplier"].strip().lower(), ""))
 
-        ws.row_dimensions[row].height = 15
+    last_row = 2 + len(suppliers_below)
+    columns = [TableColumn(id=i, name=label) for i, label in enumerate(HEADERS, 1)]
+    table = Table(displayName="Table6", ref=f"A2:H{last_row}", tableColumns=columns)
+    table.tableStyleInfo = TableStyleInfo(
+        name="TableStyleLight9", showRowStripes=True, showColumnStripes=False,
+        showFirstColumn=False, showLastColumn=False,
+    )
+    ws.add_table(table)
 
-    ws.column_dimensions["A"].width = 5
-    ws.column_dimensions["B"].width = 22
-    ws.column_dimensions["C"].width = 45
-    ws.column_dimensions["D"].width = 16
-    ws.column_dimensions["E"].width = 20
-    ws.column_dimensions["F"].width = 18
-    ws.column_dimensions["G"].width = 18
-    ws.column_dimensions["H"].width = 40
+    for letter, width in WIDTHS.items():
+        ws.column_dimensions[letter].width = width
     ws.freeze_panes = "A3"
 
 

@@ -20,4 +20,5 @@ tps-pipeline/config.yaml
 supplier-data-extractor/output/
 monthly-data-extractor/Data_*/
 graphify-out/
+tps-pipeline/tests/fixtures/
 /datav2.xlsx

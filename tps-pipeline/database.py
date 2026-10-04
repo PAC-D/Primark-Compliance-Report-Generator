@@ -6,6 +6,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from typing import List, Dict
 
+from supplier_normalisation import SUPPLIER_NORMALISATION, normalise_supplier
+
 CONFIG_PATH = Path(__file__).parent / "config.yaml"
 
 with open(CONFIG_PATH) as f:
@@ -18,27 +20,6 @@ _engine = create_engine(
     f"@{_db_config['host']}:{_db_config['port']}/{_db_config['name']}"
 )
 _SessionFactory = sessionmaker(bind=_engine)
-
-SUPPLIER_NORMALISATION = {
-    "WEIHAI BETTEX INTERNATIONAL TRADING CO., LTD": "BETTEX (HK) LIMITED (80243)",
-    "YIWU HONGZHOU IMPORT & EXPORT CO LTD": "HOME JOY TEXTILE CO. LIMITED (82056)",
-    "HIGH HOPE INTERNATIONAL G": "JIANGSU HUAJING INTERNATIONAL TRADE CO LTD (80070)",
-    "ZHEJIANG ZHUJI IMP&EXP CO LTD": "ZHEJIANG LIJIA FOREIGN TRADE CO LTD (82990)",
-    "BODYLINE (PRIVATE) LIMITED": "BODYLINE TRADING (PRIVATE) LIMITED (67247)",
-    "PENTI CORAP SANAYI VE TICARET AS": "PENTI GIYIM TICARET A.S (80651)",
-    "FUZHOU BICANO TRADING CO. LIMITED": "HONG KONG DIJIA TUO TECHNOLOGY CO., LIMITED (83666)",
-    "TEXPORT SYNDICATE LIMITED": "TEXPORT SYNDICATE PRIVATE LIMITED (83002)",
-    "JADE FOOTWEAR CO LTD": "ABUNDANT GRACE LIMITED (80064)",
-    "SAIDE TEKSTIL": "SAIDE GROUP DIS TICARET AS (80111)",
-    # Source files now deliver the post-rename name directly (without the ID
-    # suffix) instead of the original pre-rename name above, so the old keys
-    # never match. These entries key on that current spelling instead.
-    "BETTEX (HK) LIMITED": "BETTEX (HK) LIMITED (80243)",
-    "BODYLINE TRADING (PRIVATE) LIMITED": "BODYLINE TRADING (PRIVATE) LIMITED (67247)",
-    "PENTI GIYIM TICARET A.S.": "PENTI GIYIM TICARET A.S (80651)",
-    "TEXPORT SYNDICATE PRIVATE LIMITED": "TEXPORT SYNDICATE PRIVATE LIMITED (83002)",
-    "SAIDE GROUP DIS TICARET AS": "SAIDE GROUP DIS TICARET AS (80111)",
-}
 
 
 def init_db() -> None:
@@ -134,11 +115,6 @@ def insert_supplier_email(supplier_name: str, email: str) -> None:
             {"supplier": supplier_name.strip().lower(), "email": email.strip()}
         )
         conn.commit()
-
-
-def normalise_supplier(raw_name: str) -> str:
-    stripped = raw_name.strip()
-    return SUPPLIER_NORMALISATION.get(stripped, stripped)
 
 
 # Alias for backwards compatibility
