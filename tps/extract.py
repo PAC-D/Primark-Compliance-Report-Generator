@@ -12,10 +12,9 @@ from pathlib import Path
 import re
 import sys
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "tps-pipeline"))
-
-from safe_filename import safe_filename
-from supplier_normalisation import normalise_supplier
+from tps.config import DATA_DIR, OUTPUT_DIR
+from tps.safe_filename import safe_filename
+from tps.supplier_normalisation import normalise_supplier
 
 CN_REGION_COUNTRIES = {"China", "Myanmar", "Cambodia", "Vietnam", "VietNam", "Indonesia"}
 
@@ -34,7 +33,7 @@ def _get_region_for_supplier(origin_countries) -> str:
 
 def get_data_folder():
     """Get the source data folder path"""
-    return Path(__file__).parent.parent / "tps-pipeline" / "data"
+    return DATA_DIR
 
 def get_files_for_month_year(year, month):
     """Find all Excel files matching the given month/year"""
@@ -89,7 +88,7 @@ def extract_supplier_data(year, month):
     print(f"Unique suppliers: {combined['Supplier'].nunique()}")
     
     month_folder = f"Data_{MONTH_NAMES[month]}_{year}"
-    base_output = Path(__file__).parent / "output" / month_folder
+    base_output = OUTPUT_DIR / month_folder
     base_output.mkdir(parents=True, exist_ok=True)
     
     bd_count = 0

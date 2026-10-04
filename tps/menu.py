@@ -4,19 +4,17 @@ import os
 from pathlib import Path
 from datetime import date
 
-from processor import is_file_processed, process_file, copy_to_data
-from database import get_session, text, clear_supplier_emails, clear_raw_data, clear_all_tables, insert_supplier_email, init_supplier_emails_table
-from renderer import render_report
-from summary_renderer import render_summary_report
-from summary_excel_renderer import render_summary_excel
-from kpi_renderer import render_kpi_report
-from metrics import get_supplier_kpis
-from pdfgen import html_to_pdf, html_to_pdf_mixed, _merge_pdfs, _add_page_numbers
-import sys
-sys.path.insert(0, str(Path(__file__).parent.parent / "supplier-data-extractor"))
-from extract_supplier_data import get_month_year_input, extract_supplier_data
-from safe_filename import safe_filename
-from logging_config import setup_logging, get_logger
+from tps.config import CONFIG_PATH, DATA_DIR, LOG_FILE, ROOT
+from tps.ingest import is_file_processed, process_file, copy_to_data
+from tps.db import get_session, text, clear_supplier_emails, clear_all_tables, insert_supplier_email, init_supplier_emails_table
+from tps.reports.supplier_report import render_report
+from tps.reports.summary_excel import render_summary_excel
+from tps.reports.kpi_report import render_kpi_report
+from tps.metrics.supplier import get_supplier_kpis
+from tps.reports.pdf import html_to_pdf, html_to_pdf_mixed
+from tps.extract import get_month_year_input, extract_supplier_data
+from tps.safe_filename import safe_filename
+from tps.logging_config import setup_logging, get_logger
 import yaml
 import openpyxl
 
@@ -93,14 +91,14 @@ def handle_process_file():
 
 
 def handle_generate_reports():
-    config_path = Path(__file__).parent / "config.yaml"
+    config_path = CONFIG_PATH
     try:
         with open(config_path) as f:
             config = yaml.safe_load(f)
     except Exception as e:
         print(f"Error loading config: {e}")
         return
-    output_dir = Path(__file__).parent / config["paths"]["output_dir"]
+    output_dir = ROOT / config["paths"]["output_dir"]
     output_dir.mkdir(exist_ok=True)
 
     print("\n=== Report Month Selection ===")
@@ -179,8 +177,7 @@ def handle_generate_reports():
 
 
 def handle_view_logs():
-    logs_dir = Path(__file__).parent / "logs"
-    log_file = logs_dir / "run.log"
+    log_file = LOG_FILE
 
     try:
         with open(log_file) as f:
@@ -194,14 +191,14 @@ def handle_view_logs():
 
 
 def handle_generate_summary_report():
-    config_path = Path(__file__).parent / "config.yaml"
+    config_path = CONFIG_PATH
     try:
         with open(config_path) as f:
             config = yaml.safe_load(f)
     except Exception as e:
         print(f"Error loading config: {e}")
         return
-    output_dir = Path(__file__).parent / config["paths"]["output_dir"]
+    output_dir = ROOT / config["paths"]["output_dir"]
     output_dir.mkdir(exist_ok=True)
 
     print("\n=== Summary Report Month Selection ===")
@@ -314,14 +311,14 @@ def handle_import_emails():
 
 
 def handle_generate_kpi_report():
-    config_path = Path(__file__).parent / "config.yaml"
+    config_path = CONFIG_PATH
     try:
         with open(config_path) as f:
             config = yaml.safe_load(f)
     except Exception as e:
         print(f"Error loading config: {e}")
         return
-    output_dir = Path(__file__).parent / config["paths"]["output_dir"]
+    output_dir = ROOT / config["paths"]["output_dir"]
     output_dir.mkdir(exist_ok=True)
 
     print("\n=== KPI Report Month Selection ===")
@@ -369,7 +366,7 @@ def handle_generate_kpi_report():
 
 
 def handle_reload_data():
-    data_dir = Path(__file__).parent / "data"
+    data_dir = DATA_DIR
     filepaths = sorted(data_dir.glob("*.xlsx")) + sorted(data_dir.glob("*.xls"))
 
     if not filepaths:

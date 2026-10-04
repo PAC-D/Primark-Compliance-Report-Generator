@@ -1,9 +1,6 @@
 import logging
 import sys
-from pathlib import Path
-from datetime import datetime
-
-LOG_FILE = Path(__file__).parent / "logs" / "run.log"
+from tps.config import LOG_FILE
 
 def setup_logging():
     """Configure logging to file and console."""

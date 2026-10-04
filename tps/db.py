@@ -1,19 +1,12 @@
-from pathlib import Path
-
-import yaml
 from sqlalchemy import text
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from typing import List, Dict
 
-from supplier_normalisation import SUPPLIER_NORMALISATION, normalise_supplier
+from tps.config import CONFIG
+from tps.supplier_normalisation import SUPPLIER_NORMALISATION, normalise_supplier
 
-CONFIG_PATH = Path(__file__).parent / "config.yaml"
-
-with open(CONFIG_PATH) as f:
-    _config = yaml.safe_load(f)
-
-_db_config = _config["database"]
+_db_config = CONFIG["database"]
 
 _engine = create_engine(
     f"postgresql+psycopg2://{_db_config['user']}:{_db_config['password']}"

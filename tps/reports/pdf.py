@@ -46,7 +46,7 @@ def _add_page_numbers(input_path: str, output_path: str, start_page: int = 3) ->
     with open(output_path, 'wb') as f:
         writer.write(f)
 
-ASSETS_PATH = Path(__file__).parent / "assets"
+from tps.config import ASSETS_DIR as ASSETS_PATH
 
 def _load_logo(name: str) -> str:
     with open(ASSETS_PATH / name, "rb") as f:

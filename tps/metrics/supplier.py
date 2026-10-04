@@ -3,17 +3,8 @@ from datetime import date
 from sqlalchemy import text, func
 from sqlalchemy.orm import Session
 
-from database import get_session
-import yaml
-from pathlib import Path
-
-
-CONFIG_PATH = Path(__file__).parent / "config.yaml"
-
-with open(CONFIG_PATH) as f:
-    _config = yaml.safe_load(f)
-
-_report_month_offset = _config.get("app", {}).get("report_month_offset", 1)
+from tps.config import REPORT_MONTH_OFFSET as _report_month_offset
+from tps.db import get_session
 
 
 def get_report_month(year: int | None = None, month: int | None = None) -> date:

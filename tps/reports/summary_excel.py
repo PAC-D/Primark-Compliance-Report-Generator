@@ -21,9 +21,9 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableColumn, TableStyleInfo
 
-from _suppliers_below import build_follow_up_required_sheet as _build_suppliers_below_threshold_sheet
-from _supplier_trend import _build_yearly_performance_sheet
-from metrics import (
+from tps.reports._suppliers_below import build_follow_up_required_sheet as _build_suppliers_below_threshold_sheet
+from tps.reports._supplier_trend import _build_yearly_performance_sheet
+from tps.metrics.supplier import (
     get_report_month,
     get_all_suppliers_24month_trend,
     get_summary_sources,

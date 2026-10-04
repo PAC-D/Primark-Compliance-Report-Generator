@@ -4,7 +4,8 @@ from pathlib import Path
 import pandas as pd
 from sqlalchemy import text
 
-from database import engine, normalise_supplier
+from tps.config import DATA_DIR
+from tps.db import engine, normalise_supplier
 
 DROPPED_COLUMNS = [
     "Carton Specification(s)", "Priority", "Pack Type",
@@ -153,6 +154,5 @@ def is_file_processed(filepath: str) -> bool:
 
 
 def copy_to_data(filepath: str) -> None:
-    data_dir = Path(__file__).parent / "data"
-    data_dir.mkdir(exist_ok=True)
-    shutil.copy2(filepath, data_dir / Path(filepath).name)
+    DATA_DIR.mkdir(exist_ok=True)
+    shutil.copy2(filepath, DATA_DIR / Path(filepath).name)

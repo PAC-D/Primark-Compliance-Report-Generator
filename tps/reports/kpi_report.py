@@ -4,16 +4,15 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from kpi_metrics import (
+from tps.config import ASSETS_DIR as ASSETS_PATH, TEMPLATES_DIR
+from tps.metrics.kpi import (
     get_kpi_approved_by_performance,
     get_kpi_avg_lines_per_day,
     get_kpi_monthly_tables,
     get_kpi_region_reflected_lines,
     get_kpi_supplier_factory_trend,
 )
-from metrics import get_report_month
-
-ASSETS_PATH = Path(__file__).parent / "assets"
+from tps.metrics.supplier import get_report_month
 
 
 def _load_logo(name: str) -> str:
@@ -44,9 +43,8 @@ def render_kpi_report(report_month: date | None = None) -> str:
     if not has_data:
         raise ValueError("No data available for the KPI report in the selected month.")
 
-    template_dir = Path(__file__).parent / "templates"
     env = Environment(
-        loader=FileSystemLoader(str(template_dir)),
+        loader=FileSystemLoader(str(TEMPLATES_DIR)),
         autoescape=select_autoescape(["html", "xml"])
     )
     template = env.get_template("kpi_report.html.j2")

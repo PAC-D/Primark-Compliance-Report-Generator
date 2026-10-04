@@ -15,9 +15,9 @@ from openpyxl import Workbook
 from . import reference_data
 from .xlsx_fingerprint import diff_fingerprints, sheet_fingerprint
 
-from _suppliers_below import build_follow_up_required_sheet
-from _supplier_trend import _build_yearly_performance_sheet
-from summary_excel_renderer import (
+from tps.reports._suppliers_below import build_follow_up_required_sheet
+from tps.reports._supplier_trend import _build_yearly_performance_sheet
+from tps.reports.summary_excel import (
     _build_summary_sheet,
     _build_top_performers_sheet,
     _build_visibility_sheet,

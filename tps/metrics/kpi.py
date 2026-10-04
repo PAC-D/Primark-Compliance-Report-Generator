@@ -4,8 +4,8 @@ from datetime import date
 
 from sqlalchemy import text
 
-from database import get_session
-from metrics import get_last_day_of_month, get_report_month
+from tps.db import get_session
+from tps.metrics.supplier import get_last_day_of_month, get_report_month
 
 BD_REGION_COUNTRIES = {"Bangladesh", "India", "Pakistan", "Sri Lanka", "Morocco", "Turkey"}
 

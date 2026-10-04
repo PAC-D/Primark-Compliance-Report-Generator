@@ -5,7 +5,8 @@ from datetime import datetime, date
 from collections import defaultdict
 import functools
 
-from metrics import (
+from tps.config import ASSETS_DIR as ASSETS_PATH, CONFIG_PATH, PACKAGE_DIR, TEMPLATES_DIR
+from tps.metrics.supplier import (
     get_report_month, get_compliance_rate, get_monthly_compliance_scores,
     get_standard_carton_scores, get_density_scores, get_global_ranking,
     get_local_rankings, get_supplier_kpis,
@@ -14,9 +15,7 @@ from metrics import (
 )
 
 
-CONFIG_PATH = Path(__file__).parent / "config.yaml"
-TABLE_COLUMNS_PATH = Path(__file__).parent / "config" / "table_columns.yaml"
-ASSETS_PATH = Path(__file__).parent / "assets"
+TABLE_COLUMNS_PATH = PACKAGE_DIR / "table_columns.yaml"
 
 import base64
 
@@ -124,9 +123,8 @@ def render_report(supplier: str, report_month: date | None = None) -> tuple[str,
         if txn.get('handover_date'):
             txn['handover_date'] = txn['handover_date'].strftime('%d %b %Y')
 
-    template_dir = Path(__file__).parent / "templates"
     env = Environment(
-        loader=FileSystemLoader(str(template_dir)),
+        loader=FileSystemLoader(str(TEMPLATES_DIR)),
         autoescape=select_autoescape(["html", "xml"])
     )
     env.globals['enumerate'] = enumerate

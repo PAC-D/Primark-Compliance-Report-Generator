@@ -3,6 +3,10 @@
 
 import subprocess
 import sys
+from pathlib import Path
+
+# tps.config reads config.yaml on import, so this script writes it by path first.
+CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.yaml"
 
 def run_cmd(cmd, check=True):
     print(f"Running: {cmd}")
@@ -39,19 +43,18 @@ paths:
 app:
   report_month_offset: 1
 """
-    with open("config.yaml", "w") as f:
+    with open(CONFIG_PATH, "w") as f:
         f.write(config_content)
     print("config.yaml updated (user: postgres, password: postgres)")
 
     # 3. Run init_db
     print("\n3. Initializing database schema...")
-    sys.path.insert(0, ".")
-    from database import init_db
+    from tps.db import init_db
     init_db()
     print("Database schema created.")
 
     print("\n=== Setup complete ===")
-    print("Run 'source .venv/bin/activate && python menu.py' to start.")
+    print("Run 'python -m tps' to start.")
 
 if __name__ == "__main__":
     main()
