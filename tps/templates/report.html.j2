@@ -2,10 +2,8 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  {{ report_head|safe }}
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -766,6 +764,7 @@
       height: 280px;
     }
   </style>
+  {{ tailwind_css|safe }}
 </head>
 <body>
 

@@ -1,43 +1,43 @@
-"""HTML -> PDF via headless Chromium (Playwright), plus pypdf merging/page numbers."""
+"""HTML -> PDF via headless Chromium (Playwright), plus pypdf merging/page numbers.
 
-import atexit
-import os
-import tempfile
+Each thread gets its own browser and one reusable page: Playwright's sync API is
+bound to the thread that started it, and opening a new page costs 1.5-2.5 s.
+Whoever renders calls close_browser() from the same thread when done.
+"""
+
+import io
+import threading
 from datetime import datetime
 
-from playwright.sync_api import Browser, sync_playwright
-from pypdf import PdfReader, PdfWriter
+from playwright.sync_api import Page, sync_playwright
+from pypdf import PdfWriter
 from pypdf.annotations import FreeText
 from pypdf.generic import ArrayObject, NameObject, TextStringObject
 
 from tps.reports.html import ALLPORT_LOGO, PRIMARK_LOGO
 
 NO_MARGIN = {"top": "0", "right": "0", "bottom": "0", "left": "0"}
+# Wider than an A4/A4-landscape page; 2x density keeps the chart canvases sharp.
+VIEWPORT = {"width": 1240, "height": 1754, "device_scale_factor": 2}
 
-_browser: Browser | None = None
-_playwright = None
-
-
-def get_browser() -> Browser:
-    """One shared headless browser for the whole run, closed at exit."""
-    global _browser, _playwright
-    if _browser is None:
-        _playwright = sync_playwright().start()
-        _browser = _playwright.chromium.launch(headless=True)
-    return _browser
+_local = threading.local()
 
 
-def close_browser():
-    global _playwright, _browser
-    if _browser:
-        _browser.close()
-        _browser = None
-    if _playwright:
-        _playwright.stop()
-        _playwright = None
+def _page() -> Page:
+    if getattr(_local, "page", None) is None:
+        _local.playwright = sync_playwright().start()
+        _local.browser = _local.playwright.chromium.launch(headless=True)
+        _local.page = _local.browser.new_page(viewport=VIEWPORT)
+    return _local.page
 
 
-atexit.register(close_browser)
+def close_browser() -> None:
+    """Close this thread's browser, if it started one."""
+    if getattr(_local, "page", None) is None:
+        return
+    _local.browser.close()
+    _local.playwright.stop()
+    _local.page = _local.browser = _local.playwright = None
 
 
 def _landscape_header_footer() -> tuple[str, str]:
@@ -66,21 +66,17 @@ def _landscape_header_footer() -> tuple[str, str]:
     return header, footer
 
 
-def _render_page(html: str, landscape: bool = False, header_template: str = "",
-                 footer_template: str = "") -> bytes:
-    viewport = ({"width": 2970, "height": 42000, "device_scale_factor": 2} if landscape
-                else {"width": 2100, "height": 2970, "device_scale_factor": 2})
-    page = get_browser().new_page(viewport=viewport)
-    try:
-        page.set_content(html, wait_until="networkidle", timeout=60000)
-        page.wait_for_timeout(2000)
-        if landscape:
-            return page.pdf(width="297mm", height="210mm", print_background=True, margin=NO_MARGIN,
-                            display_header_footer=True, header_template=header_template,
-                            footer_template=footer_template)
-        return page.pdf(format="A4", print_background=True, margin=NO_MARGIN)
-    finally:
-        page.close()
+def _render_page(html: str, landscape: bool = False) -> bytes:
+    page = _page()
+    # Every asset is inline and charts don't animate, so the page is final once
+    # it has loaded and its fonts are ready - no network wait, no sleep.
+    page.set_content(html, wait_until="load")
+    page.evaluate("document.fonts.ready.then(() => true)")
+    if landscape:
+        header, footer = _landscape_header_footer()
+        return page.pdf(width="297mm", height="210mm", print_background=True, margin=NO_MARGIN,
+                        display_header_footer=True, header_template=header, footer_template=footer)
+    return page.pdf(format="A4", print_background=True, margin=NO_MARGIN)
 
 
 def html_to_pdf(html_content: str, output_path: str) -> None:
@@ -94,41 +90,23 @@ def html_to_pdf(html_content: str, output_path: str) -> None:
 
 
 def html_to_pdf_mixed(portrait_html: str, landscape_html: str | None, output_path: str) -> None:
-    """Portrait pages followed by landscape pages; landscape pages get page numbers."""
+    """Portrait pages followed by landscape pages; landscape pages get page numbers.
+    Merged and numbered in memory, written once."""
     if landscape_html is None:
         html_to_pdf(portrait_html, output_path)
         return
 
-    header_tmpl, footer_tmpl = _landscape_header_footer()
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        portrait_path = os.path.join(tmpdir, "portrait.pdf")
-        landscape_path = os.path.join(tmpdir, "landscape.pdf")
-
-        with open(portrait_path, "wb") as f:
-            f.write(_render_page(portrait_html))
-        portrait_page_count = len(PdfReader(portrait_path).pages)
-
-        with open(landscape_path, "wb") as f:
-            f.write(_render_page(landscape_html, landscape=True,
-                                 header_template=header_tmpl, footer_template=footer_tmpl))
-
-        _merge_pdfs([portrait_path, landscape_path], output_path)
-        _add_page_numbers(output_path, output_path, start_page=portrait_page_count + 1)
-
-
-def _merge_pdfs(input_paths: list[str], output_path: str) -> None:
     writer = PdfWriter()
-    for path in input_paths:
-        writer.append(path)
+    writer.append(io.BytesIO(_render_page(portrait_html)))
+    first_numbered = len(writer.pages) + 1
+    writer.append(io.BytesIO(_render_page(landscape_html, landscape=True)))
+    _number_pages(writer, start_page=first_numbered)
     with open(output_path, "wb") as f:
         writer.write(f)
 
 
-def _add_page_numbers(input_path: str, output_path: str, start_page: int = 3) -> None:
-    writer = PdfWriter()
-    writer.append(input_path)
-
+def _number_pages(writer: PdfWriter, start_page: int) -> None:
+    """'Page N' in the bottom-right corner of every page from start_page on."""
     for i, page_obj in enumerate(writer.pages):
         page_num = i + 1
         if page_num < start_page:
@@ -150,6 +128,3 @@ def _add_page_numbers(input_path: str, output_path: str, start_page: int = 3) ->
         if "/Annots" not in page_obj:
             page_obj[NameObject("/Annots")] = ArrayObject()
         page_obj["/Annots"].append(annotation)
-
-    with open(output_path, "wb") as f:
-        writer.write(f)
