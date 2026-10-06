@@ -137,6 +137,7 @@ It only listens on this PC. Stop it with Ctrl+C in the terminal.
 | Month | Summary Workbook | `<month>/Summary_Report_<Month>_<Year>.xlsx`. |
 | Month | KPI Report | `<month>/KPI_Report_<Month>_<Year>.pdf`. |
 | Month | Supplier Data | One workbook per supplier from the raw files in `data/` (no database), in `<month>/Supplier_Data/`. |
+| Month | All Supplier Data | Every file in `data/` for the month combined into one workbook (no database): `<month>/Supplier_Data/All_Suppliers_<Mon>_<Year>.xlsx`. |
 | Data | Load transaction files | Upload bi-weekly exports; loads them into `raw_data` and copies them into `data/`. Files already loaded are skipped unless "re-load" is ticked; re-loading replaces a file's rows, it never duplicates them. |
 | Suppliers | Supplier list | Every supplier with data or stored emails. Edit a supplier's emails in place (comma-separated; saved when you leave the field or press Enter; blank removes them). Search by name or email, filter by region and month; filters stack. With a month picked, region is the supplier's region that month, as in the report folders. |
 | Suppliers | Import | A "Supplier Name / Email" workbook. Replaces the emails of each supplier in it; suppliers not in it, or with a blank email cell, are kept. |

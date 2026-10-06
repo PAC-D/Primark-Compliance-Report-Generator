@@ -38,5 +38,5 @@ def test_monthly_writes_one_combined_workbook(tmp_path, monkeypatch):
 
     path = extract.extract_monthly(2026, 5)
 
-    assert path == out / "All_Suppliers_May_2026.xlsx"
+    assert path == out / "All_Suppliers_May_2026.xlsx" == extract.monthly_path(2026, 5)
     assert pd.read_excel(path)["Supplier"].tolist() == ["Test Supplier Ltd"]

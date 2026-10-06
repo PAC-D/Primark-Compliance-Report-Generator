@@ -16,7 +16,7 @@ from openpyxl import Workbook
 from tps import config
 from tps.common import get_report_month, report_region, safe_filename, split_emails
 from tps.db import clear_raw_data, set_supplier_emails
-from tps.extract import extract_by_supplier
+from tps.extract import extract_by_supplier, extract_monthly, monthly_path
 from tps.ingest import copy_to_data, import_supplier_emails, is_file_processed, process_file
 from tps.metrics.summary import get_latest_data_month, get_summary_sources, get_supplier_emails_map
 from tps.metrics.supplier import get_supplier_countries_by_month, get_supplier_kpis, get_suppliers_for_month
@@ -72,6 +72,7 @@ def month_status(report_month: date) -> dict:
     reports = folder / config.SUPPLIER_REPORTS
     data = folder / config.SUPPLIER_DATA
     summary, kpi = summary_path(report_month), kpi_path(report_month)
+    combined = monthly_path(report_month.year, report_month.month)
     return {
         **get_summary_sources(report_month),
         "outputs": {
@@ -79,6 +80,7 @@ def month_status(report_month: date) -> dict:
             "summary": stamp([summary] if summary.exists() else [], file=summary),
             "kpi": stamp([kpi] if kpi.exists() else [], file=kpi),
             "extract": stamp(data.glob("*/*.xlsx"), folder=data),
+            "all-supplier-data": stamp([combined] if combined.exists() else [], file=combined),
         },
     }
 
@@ -218,6 +220,13 @@ def extract_supplier_data(report_month: date, progress=_no_progress) -> Result:
     progress(0, 1, "Writing one workbook per supplier")
     folder = extract_by_supplier(report_month.year, report_month.month)
     return Result(f"Supplier data for {report_month:%B %Y}", folder=folder)
+
+
+def extract_all_supplier_data(report_month: date, progress=_no_progress) -> Result:
+    """Raises FileNotFoundError when data/ has no files for the month."""
+    progress(0, 1, "Combining the month's files from data/")
+    path = extract_monthly(report_month.year, report_month.month)
+    return Result(f"All supplier data for {report_month:%B %Y}", files=[path])
 
 
 def import_emails(path, progress=_no_progress) -> Result:

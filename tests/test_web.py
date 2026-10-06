@@ -37,6 +37,15 @@ def test_index_defaults_to_latest_month_with_data(client):
         page = client.get("/").get_data(as_text=True)
     assert 'value="2026-08"' in page
     assert "KPI Report" in page
+    assert 'data-kind="all-supplier-data"' in page
+
+
+def test_all_supplier_data_job_runs_the_combined_extract(client):
+    with patch("tps.actions.extract_all_supplier_data",
+               return_value=actions.Result("All supplier data for June 2026")) as extract:
+        job = client.post("/jobs/all-supplier-data", data={"month": "2026-06"}).get_json()
+    assert extract.call_args.args == (date(2026, 6, 1),)
+    assert job["state"] == "done"
 
 
 def test_kpi_job_links_its_pdf(client, output):

@@ -40,13 +40,20 @@ def _month_dir(year: int, month: int) -> Path:
     return path
 
 
+def monthly_path(year: int, month: int) -> Path:
+    """Where extract_monthly writes the month's combined workbook."""
+    return (config.month_folder(date(year, month, 1)) / config.SUPPLIER_DATA
+            / f"All_Suppliers_{calendar.month_abbr[month]}_{year}.xlsx")
+
+
 def extract_monthly(year: int, month: int) -> Path:
     """All suppliers' rows for the month in a single workbook."""
     combined = load_month_files(year, month)
     print(f"Total combined rows: {len(combined)}")
     print(f"Unique suppliers: {combined['Supplier'].nunique()}")
 
-    output_path = _month_dir(year, month) / f"All_Suppliers_{calendar.month_abbr[month]}_{year}.xlsx"
+    _month_dir(year, month)
+    output_path = monthly_path(year, month)
     combined.to_excel(output_path, index=False)
     print(f"\nExtraction complete! Single file saved to: {output_path}")
     return output_path

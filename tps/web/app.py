@@ -19,6 +19,7 @@ MONTH_JOBS = {
     "summary": ("Summary Workbook", "generate_summary_report"),
     "kpi": ("KPI Report", "generate_kpi_report"),
     "extract": ("Supplier Data", "extract_supplier_data"),
+    "all-supplier-data": ("All Supplier Data", "extract_all_supplier_data"),
 }
 EXCEL_SUFFIXES = {".xlsx", ".xls"}
 

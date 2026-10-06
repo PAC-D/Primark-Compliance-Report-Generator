@@ -200,3 +200,24 @@ def test_month_status_reads_the_month_folder(temp_output):
     assert status["outputs"]["kpi"]["file"] == month / "KPI_Report_August_2026.pdf"
     assert status["outputs"]["summary"] is None
     assert status["outputs"]["extract"] is None
+    assert status["outputs"]["all-supplier-data"] is None
+
+
+def test_month_status_counts_the_combined_workbook_on_its_own(temp_output):
+    combined = temp_output / "2026_August" / "Supplier_Data" / "All_Suppliers_Aug_2026.xlsx"
+    combined.parent.mkdir(parents=True)
+    combined.write_bytes(b"xlsx")
+
+    with patch("tps.actions.get_summary_sources", return_value={"total_suppliers": 0, "total_factories": 0}):
+        outputs = actions.month_status(date(2026, 8, 1))["outputs"]
+
+    assert outputs["all-supplier-data"]["file"] == combined
+    assert outputs["extract"] is None  # not one of the per-supplier workbooks
+
+
+def test_all_supplier_data_offers_the_combined_workbook(temp_output):
+    path = temp_output / "All_Suppliers_Aug_2026.xlsx"
+    with patch("tps.actions.extract_monthly", return_value=path) as extract:
+        result = actions.extract_all_supplier_data(date(2026, 8, 1))
+    extract.assert_called_once_with(2026, 8)
+    assert result.files == [path]
