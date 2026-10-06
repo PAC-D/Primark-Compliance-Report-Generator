@@ -138,6 +138,24 @@ h2, h3 { font-size: 1rem; font-weight: 600; }
 .disclosure[open] > summary { border-bottom: 1px solid var(--separator); }
 .disclosure .row h3 { font-weight: 600; }
 
+a.button { display: inline-flex; align-items: center; text-decoration: none; }
+.field {
+  font: inherit; font-size: 0.875rem; min-height: 32px; padding: 5px 10px; color: var(--label);
+  background: var(--control); border: 1px solid var(--control-border); border-radius: 8px;
+}
+.field:user-invalid { border-color: var(--danger); }
+.filters { flex-wrap: wrap; gap: 8px; min-height: 0; }
+.filters [type=search] { flex: 1 1 220px; }
+#supplier-count { margin-left: auto; }
+.supplier-list { list-style: none; margin: 0; padding: 0; max-height: 60vh; overflow: auto;
+                 border-top: 1px solid var(--separator); }
+.supplier { display: flex; align-items: center; gap: 12px; padding: 8px 20px; }
+.supplier:not([hidden]) ~ .supplier { border-top: 1px solid var(--separator); }
+.supplier label { flex: 1; min-width: 0; display: flex; align-items: center; gap: 16px; }
+.supplier-name { flex: 1; min-width: 0; font-size: 0.875rem; overflow-wrap: anywhere; }
+.supplier .field { flex: 1.2; min-width: 0; }
+.save-state { flex: none; width: 64px; }
+
 .log { margin: 0; padding: 16px 20px; max-height: 360px; overflow: auto; font-size: 0.8125rem; line-height: 1.5;
        font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; white-space: pre-wrap; color: var(--secondary); }
 
@@ -152,6 +170,9 @@ dialog p { color: var(--secondary); font-size: 0.875rem; }
   .page, .toolbar { padding-left: 16px; padding-right: 16px; }
   .row { flex-direction: column; align-items: stretch; }
   .row-actions { justify-content: flex-start; }
+  .filters [type=search] { flex: none; }
+  .supplier label { flex-direction: column; align-items: stretch; gap: 4px; }
+  #supplier-count { margin-left: 0; }
   .month-title { font-size: 1.6rem; }
 }
 @media (prefers-reduced-motion: reduce) {

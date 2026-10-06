@@ -23,7 +23,8 @@ Primark's packaging-management team exports raw transaction data as
 bi-weekly Excel files (one per half-month, per region). This project turns
 those exports into the reporting suppliers and account managers need:
 
-- a three-page PDF compliance report per supplier, per month
+- a PDF compliance report per supplier, per month: a dashboard page, factory
+  tables, notes, then the month's transactions on landscape pages
 - an Excel workbook summarizing every supplier for the month
 - a KPI report with regional and trend charts across all suppliers
 - extracts that re-slice the raw data by month or by supplier, for requests
@@ -54,11 +55,11 @@ PostgreSQL database.
 │   │   ├── supplier_report.py  # Per-supplier report HTML
 │   │   ├── summary_excel.py    # Summary workbook (openpyxl)
 │   │   ├── kpi_report.py       # KPI report HTML
-│   │   ├── html.py             # Jinja environment + embedded logos, fonts, Chart.js, Tailwind CSS
-│   │   ├── pdf.py              # Playwright HTML -> PDF, page numbers
-│   │   └── build_assets.py     # Rebuilds assets/vendor/ (run after adding Tailwind classes)
+│   │   ├── html.py             # Jinja environment + embedded logos, fonts, Chart.js
+│   │   ├── pdf.py              # Playwright HTML -> PDF, print header/footer
+│   │   └── build_assets.py     # Re-fetches assets/vendor/ (Chart.js, Inter font)
 │   ├── templates/              # Jinja2 report templates
-│   └── assets/                 # Logos, signature; vendor/ = Chart.js, Inter font, prebuilt Tailwind CSS
+│   └── assets/                 # Logos, signature; vendor/ = Chart.js, Inter font
 ├── tests/                      # pytest suite
 ├── docs/superpowers/           # Design specs and implementation plans
 ├── config.yaml.example         # Copy to config.yaml and fill in DB credentials
@@ -88,7 +89,7 @@ output/
 | ETL           | pandas, openpyxl                        |
 | Database      | PostgreSQL via SQLAlchemy               |
 | Templating    | Jinja2 → HTML with inline SVG charts    |
-| PDF rendering | Playwright (headless Chromium), pypdf   |
+| PDF rendering | Playwright (headless Chromium)          |
 | Config        | YAML                                    |
 | Web UI        | Flask, vanilla HTML/CSS/JS (no build)   |
 | Tests         | pytest                                  |
@@ -137,8 +138,10 @@ It only listens on this PC. Stop it with Ctrl+C in the terminal.
 | Month | KPI Report | `<month>/KPI_Report_<Month>_<Year>.pdf`. |
 | Month | Supplier Data | One workbook per supplier from the raw files in `data/` (no database), in `<month>/Supplier_Data/`. |
 | Data | Load transaction files | Upload bi-weekly exports; loads them into `raw_data` and copies them into `data/`. Files already loaded are skipped unless "re-load" is ticked; re-loading replaces a file's rows, it never duplicates them. |
-| Data | Import supplier emails | Replace the stored supplier emails with a "Supplier Name / Email" workbook. |
-| Data | Clear database | Delete all rows from `raw_data` and `supplier_emails` (schema kept), optionally reloading `data/`. |
+| Suppliers | Supplier list | Every supplier with data or stored emails. Edit a supplier's emails in place (comma-separated; saved when you leave the field or press Enter; blank removes them). Search by name or email, filter by region and month; filters stack. With a month picked, region is the supplier's region that month, as in the report folders. |
+| Suppliers | Import | A "Supplier Name / Email" workbook. Replaces the emails of each supplier in it; suppliers not in it, or with a blank email cell, are kept. |
+| Suppliers | Export | Every supplier and its emails, in the same layout Import reads. |
+| Data | Clear database | Delete all rows from `raw_data` (schema and supplier emails kept), optionally reloading `data/`. |
 | — | Recent log | The last 50 lines of `logs/run.log`. |
 
 The page opens on the latest month with data and shows, for each output,
@@ -167,7 +170,7 @@ Both read the bi-weekly files in `data/` directly.
 pytest
 ```
 
-The tests never touch the database or `output/`. The summary-workbook layout
+The tests never touch the database or `output/`. The summary-workbook content
 tests compare against `tests/fixtures/reference_july_2026.xlsx`, which holds
 real supplier data and is not in git; they skip when it is absent.
 

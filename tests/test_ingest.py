@@ -303,13 +303,12 @@ class TestComplianceStatus:
 
 class TestImportSupplierEmails:
     @pytest.fixture
-    def inserted(self):
-        rows = []
+    def stored(self):
+        """What import_supplier_emails hands to set_supplier_emails."""
+        calls = []
         with patch("tps.ingest.init_supplier_emails_table"), \
-             patch("tps.ingest.clear_supplier_emails") as clear, \
-             patch("tps.ingest.insert_supplier_email", side_effect=lambda s, e: rows.append((s, e))):
-            yield rows
-            clear.assert_called_once()
+             patch("tps.ingest.set_supplier_emails", side_effect=calls.append):
+            yield calls
 
     def _workbook(self, tmp_path, header, *rows):
         wb = openpyxl.Workbook()
@@ -320,11 +319,18 @@ class TestImportSupplierEmails:
         wb.save(path)
         return str(path)
 
-    def test_splits_multiple_addresses_and_skips_blanks(self, tmp_path, inserted):
+    def test_splits_multiple_addresses_and_skips_blanks(self, tmp_path, stored):
         path = self._workbook(tmp_path, ["Email", "Supplier Name"],
                               ["a@x.com; b@x.com,", "ACME"], [None, "NO EMAIL LTD"])
-        assert import_supplier_emails(path) == 2
-        assert inserted == [("ACME", "a@x.com"), ("ACME", "b@x.com")]
+        assert import_supplier_emails(path) == 1
+        # Only suppliers in the file with an address are replaced; nothing else is touched.
+        assert stored == [{"acme": ["a@x.com", "b@x.com"]}]
+
+    def test_rows_of_one_supplier_are_combined(self, tmp_path, stored):
+        path = self._workbook(tmp_path, ["Supplier Name", "Email"],
+                              ["ACME", "a@x.com"], [" acme ", "b@x.com"])
+        import_supplier_emails(path)
+        assert stored == [{"acme": ["a@x.com", "b@x.com"]}]
 
     def test_missing_columns_raise(self, tmp_path):
         path = self._workbook(tmp_path, ["Supplier", "Contact"], ["ACME", "a@x.com"])

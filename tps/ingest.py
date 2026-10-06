@@ -8,9 +8,9 @@ import openpyxl
 import pandas as pd
 from sqlalchemy import text
 
-from tps.common import normalise_supplier
+from tps.common import normalise_supplier, split_emails
 from tps.config import DATA_DIR
-from tps.db import clear_supplier_emails, engine, init_supplier_emails_table, insert_supplier_email
+from tps.db import engine, init_supplier_emails_table, set_supplier_emails
 
 DROPPED_COLUMNS = [
     "Carton Specification(s)", "Priority", "Pack Type",
@@ -167,9 +167,10 @@ def copy_to_data(filepath: str) -> None:
     shutil.copy2(filepath, DATA_DIR / Path(filepath).name)
 
 def import_supplier_emails(filepath: str) -> int:
-    """Replace supplier_emails with a workbook's 'Supplier Name' / 'Email'
-    columns. A cell may hold several addresses split by ',' or ';'.
-    Returns the number of addresses stored."""
+    """Set each supplier's emails from a workbook's 'Supplier Name' / 'Email'
+    columns, replacing what was stored for that supplier. Suppliers not in the
+    file, or with no address in it, are kept as they are. A cell may hold several
+    addresses split by ',' or ';'. Returns the number of suppliers updated."""
     ws = openpyxl.load_workbook(filepath, data_only=True).active
 
     header_row = [cell.value for cell in ws[1]]
@@ -186,17 +187,12 @@ def import_supplier_emails(filepath: str) -> int:
     if supplier_col is None or email_col is None:
         raise ValueError("Could not find 'Supplier Name' and 'Email' columns")
 
-    init_supplier_emails_table()
-    clear_supplier_emails()
-
-    count = 0
+    emails_by_supplier: dict[str, list[str]] = {}
     for row in ws.iter_rows(min_row=2, values_only=True):
-        supplier_name, emails = row[supplier_col], row[email_col]
-        if not (supplier_name and emails):
-            continue
-        for email in str(emails).replace(";", ",").split(","):
-            email = email.strip()
-            if email:
-                insert_supplier_email(str(supplier_name), email)
-                count += 1
-    return count
+        supplier_name, emails = row[supplier_col], split_emails(row[email_col])
+        if supplier_name and emails:
+            emails_by_supplier.setdefault(str(supplier_name).strip().lower(), []).extend(emails)
+
+    init_supplier_emails_table()
+    set_supplier_emails(emails_by_supplier)
+    return len(emails_by_supplier)

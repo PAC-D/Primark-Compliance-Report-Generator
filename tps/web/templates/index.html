@@ -68,8 +68,38 @@
 
     <p class="error" id="error" role="alert" hidden></p>
 
+    <details class="group disclosure" id="suppliers">
+      <summary><h2>Suppliers</h2><span class="secondary">Supplier emails for the summary workbook</span></summary>
+
+      <form class="row" data-job="/jobs/emails">
+        <div class="row-text">
+          <h3><label for="emails">Import or Export Emails</label></h3>
+          <p class="secondary">Workbook with Supplier Name and Email columns. Updates the suppliers in it; others are kept.</p>
+        </div>
+        <div class="row-actions">
+          <input type="file" id="emails" name="file" accept=".xlsx,.xls" required class="file-input">
+          <button type="submit" class="button">Import</button>
+          <a class="button" href="/suppliers/export">Export</a>
+        </div>
+      </form>
+
+      <div class="row filters">
+        <input type="search" id="supplier-search" class="field" placeholder="Search suppliers or emails" aria-label="Search suppliers or emails">
+        <select id="supplier-region" class="field" aria-label="Region">
+          <option value="">All regions</option>
+          <option value="BD_Region">BD</option>
+          <option value="CN_Region">CN</option>
+        </select>
+        <select id="supplier-month" class="field" aria-label="Month">
+          <option value="">All months</option>
+        </select>
+        <span class="secondary" id="supplier-count" aria-live="polite"></span>
+      </div>
+      <ul class="supplier-list" id="supplier-list"></ul>
+    </details>
+
     <details class="group disclosure" id="data">
-      <summary><h2>Data</h2><span class="secondary">Load files, import emails, clear the database</span></summary>
+      <summary><h2>Data</h2><span class="secondary">Load files, clear the database</span></summary>
 
       <form class="row" data-job="/jobs/upload">
         <div class="row-text">
@@ -85,21 +115,10 @@
         </div>
       </form>
 
-      <form class="row" data-job="/jobs/emails">
-        <div class="row-text">
-          <h3><label for="emails">Supplier Emails</label></h3>
-          <p class="secondary">Workbook with Supplier Name and Email columns. Replaces the stored list.</p>
-        </div>
-        <div class="row-actions">
-          <input type="file" id="emails" name="file" accept=".xlsx,.xls" required class="file-input">
-          <button type="submit" class="button">Import Emails</button>
-        </div>
-      </form>
-
       <form class="row" data-job="/jobs/clear" id="clear-form">
         <div class="row-text">
           <h3>Clear Database</h3>
-          <p class="secondary">Deletes every transaction row and stored email. Tables are kept.</p>
+          <p class="secondary">Deletes every transaction row. Tables and supplier emails are kept.</p>
           <label class="check">
             <input type="checkbox" name="reload" checked> Reload all files from data/ afterwards
           </label>
@@ -118,7 +137,7 @@
 
   <dialog id="confirm-clear" aria-labelledby="confirm-title">
     <h2 id="confirm-title">Clear the database?</h2>
-    <p>Every transaction row and stored supplier email will be deleted. This can't be undone.</p>
+    <p>Every transaction row will be deleted. Supplier emails are kept. This can't be undone.</p>
     <form method="dialog" class="dialog-actions">
       <button value="cancel" class="button" autofocus>Cancel</button>
       <button value="clear" class="button destructive-filled">Clear Database</button>

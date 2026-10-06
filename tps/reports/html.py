@@ -1,6 +1,6 @@
-"""Jinja environment and everything the HTML reports embed: logos, fonts,
-Chart.js and the prebuilt Tailwind CSS - so rendering never touches the network.
-(Rebuild the vendored files with `python -m tps.reports.build_assets`.)"""
+"""Jinja environment and everything the HTML reports embed: logos, fonts and
+Chart.js - so rendering never touches the network.
+(Re-fetch the vendored files with `python -m tps.reports.build_assets`.)"""
 
 import base64
 import re
@@ -34,10 +34,7 @@ DEAN_MOSS_SIGNATURE = _data_uri(ASSETS_DIR / "DeanMoss.jpg", "image/jpeg")
 # Where the templates used to load Inter and Chart.js from the web.
 REPORT_HEAD = (f"<style>{_fonts_css()}</style>\n"
                f"<script>{(VENDOR / 'chart.umd.min.js').read_text(encoding='utf-8')}</script>")
-# Goes last in <head>, where the Tailwind CDN used to inject its generated CSS.
-TAILWIND_CSS = f"<style>{(VENDOR / 'tailwind.css').read_text(encoding='utf-8')}</style>"
 
 
 def render(template: str, **context) -> str:
-    return _env.get_template(template).render(
-        report_head=REPORT_HEAD, tailwind_css=TAILWIND_CSS, **context)
+    return _env.get_template(template).render(report_head=REPORT_HEAD, **context)

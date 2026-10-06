@@ -52,16 +52,16 @@ class TestLoadTransactionFiles:
 
 class TestClearDatabase:
     def test_clear_only(self):
-        with patch("tps.actions.clear_all_tables") as clear, \
+        with patch("tps.actions.clear_raw_data") as clear, \
              patch("tps.actions.load_transaction_files") as load:
             result = actions.clear_database(reload=False)
         clear.assert_called_once()
         load.assert_not_called()
-        assert result.summary == "Database cleared (tables kept)"
+        assert result.summary == "Database cleared (supplier emails kept)"
 
     def test_clear_then_reload_data_folder(self, tmp_path):
         (tmp_path / "x.xlsx").touch()
-        with patch("tps.actions.clear_all_tables"), \
+        with patch("tps.actions.clear_raw_data"), \
              patch("tps.config.DATA_DIR", tmp_path), \
              patch("tps.actions.load_transaction_files",
                    return_value=actions.Result("Loaded 1 of 1 file(s)")) as load:
@@ -72,22 +72,47 @@ class TestClearDatabase:
         assert load.call_args.kwargs["copy"] is False
 
 
+def test_supplier_list_has_region_per_month_and_email_only_suppliers():
+    countries = [("ACME", "2026-07", ["Bangladesh"]), ("ACME", "2026-08", ["China"]),
+                 ("Bolt", "2026-08", ["India", "Pakistan"]), ("Crane", None, ["China"])]
+    emails = {"acme": "a@x.com, b@x.com", "old supplier": "o@x.com"}
+    with patch("tps.actions.get_supplier_countries_by_month", return_value=countries), \
+         patch("tps.actions.get_supplier_emails_map", return_value=emails):
+        suppliers = actions.supplier_list()
+
+    assert suppliers == [
+        # Overall region uses every country ever: BD + CN counts as CN, like the reports.
+        {"name": "ACME", "emails": "a@x.com, b@x.com", "region": "CN_Region",
+         "months": {"2026-07": "BD_Region", "2026-08": "CN_Region"}},
+        {"name": "Bolt", "emails": "", "region": "BD_Region", "months": {"2026-08": "BD_Region"}},
+        {"name": "Crane", "emails": "", "region": "CN_Region", "months": {}},
+        {"name": "old supplier", "emails": "o@x.com", "region": None, "months": {}},
+    ]
+
+
+def test_save_supplier_emails_returns_the_cleaned_list():
+    with patch("tps.actions.set_supplier_emails") as store:
+        assert actions.save_supplier_emails("ACME", " a@x.com;b@x.com, ") == "a@x.com, b@x.com"
+    store.assert_called_once_with({"ACME": ["a@x.com", "b@x.com"]})
+
+
 class TestSupplierReports:
     def test_writes_region_folders_and_collects_failures(self, temp_output):
         def render(supplier, month):
             if supplier == "BAD LTD":
                 raise RuntimeError("boom")
-            return "<p>", "<l>"
+            return "<p>"
 
         progress = MagicMock()
         with patch("tps.actions.get_suppliers_for_month", return_value=["ACME", "BAD LTD"]), \
              patch("tps.actions.get_supplier_kpis", return_value={"origin_country": "Bangladesh, China"}), \
              patch("tps.actions.render_report", side_effect=render), \
-             patch("tps.actions.html_to_pdf_mixed") as pdf:
+             patch("tps.actions.html_to_pdf") as pdf, \
+             patch("tps.actions.close_browser"):
             result = actions.generate_supplier_reports(date(2026, 7, 1), progress)
 
         folder = temp_output / "2026_July" / "Supplier_Reports"
-        pdf.assert_called_once_with("<p>", "<l>", str(folder / "CN_Region" / "ACME_July_2026.pdf"))
+        pdf.assert_called_once_with("<p>", str(folder / "CN_Region" / "ACME_July_2026.pdf"), header_footer=True)
         assert result.folder == folder
         assert result.summary == "Generated 1 reports, 1 skipped"
         assert result.details == ["Skipped BAD LTD: boom"]
@@ -105,8 +130,9 @@ class TestSupplierReports:
         with patch("tps.actions.PDF_WORKERS", 1), \
              patch("tps.actions.get_suppliers_for_month", return_value=suppliers), \
              patch("tps.actions.get_supplier_kpis", return_value={"origin_country": "India"}), \
-             patch("tps.actions.render_report", return_value=("<p>", "<l>")), \
-             patch("tps.actions.html_to_pdf_mixed") as pdf:
+             patch("tps.actions.render_report", return_value="<p>"), \
+             patch("tps.actions.html_to_pdf") as pdf, \
+             patch("tps.actions.close_browser"):
             with pytest.raises(Stop):
                 actions.generate_supplier_reports(date(2026, 7, 1), progress)
         assert pdf.call_count < len(suppliers)
@@ -124,7 +150,7 @@ class TestKpiReport:
              patch("tps.actions.close_browser"):
             result = actions.generate_kpi_report(date(2026, 6, 1))
         path = temp_output / "2026_June" / "KPI_Report_June_2026.pdf"
-        pdf.assert_called_once_with("<html>KPI</html>", str(path))
+        pdf.assert_called_once_with("<html>KPI</html>", str(path), header_footer=True)
         assert result.files == [path]
 
     def test_no_data_raises(self):

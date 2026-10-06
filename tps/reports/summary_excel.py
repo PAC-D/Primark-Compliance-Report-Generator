@@ -1,8 +1,10 @@
 """Monthly summary workbook: Summary, Visibility, Top Performers,
 Follow-Up Required and Yearly Performance sheets.
 
-Layout is pinned to a hand-polished reference workbook by
-tests/test_summary_excel_layout.py - change widths/styles there first.
+Every sheet shares one frame (margin column, title, subtitle, accent rule, print
+setup) and every table one custom table style, so the workbook reads as one
+report. tests/test_summary_excel.py checks the content still matches the
+hand-checked July 2026 reference.
 """
 
 import calendar
@@ -25,11 +27,15 @@ from openpyxl.drawing.text import (
     RegularTextRun,
     RichTextProperties,
 )
+from openpyxl.formatting.rule import ColorScaleRule, DataBarRule, FormulaRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.styles.differential import DifferentialStyle
+from openpyxl.styles.table import TableStyle, TableStyleElement, TableStyleList
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableColumn, TableStyleInfo
 
 from tps.common import get_report_month
+from tps.metrics.kpi import region_working_days
 from tps.metrics.summary import (
     get_all_suppliers_trend,
     get_summary_country_compliance,
@@ -41,25 +47,32 @@ from tps.metrics.summary import (
     get_top_suppliers,
 )
 
-ACCENT = "1F4E79"
-TOTAL_ROW_FILL = "D6E4F0"
+# The PDF reports' palette.
+NAVY = "002A62"
+CYAN = "00A2D3"
+TINT = "E8F6FB"
+STRIPE = "F5F9FC"
+MUTED = "5B7486"
+INK = "1F2937"
+LINE = "DCE4EC"
+ALERT = "DC2626"
+LOW_TEXT, LOW_FILL = "B91C1C", "FDE2E1"
+MID_TEXT, MID_FILL = "B45309", "FEF3C7"
+LINK = "1C5CAB"
 
-SUBTITLE_COLOUR = "595959"
-SECTION_FONT = Font(bold=True, size=11, color=ACCENT)
-HEADER_FONT = Font(bold=True, size=11, color="FFFFFF")
-SUBTITLE_FONT = Font(size=11, color=SUBTITLE_COLOUR)
-ACCENT_FILL = PatternFill(start_color=ACCENT, end_color=ACCENT, fill_type="solid")
+# Chart series, checked for colour-blind separation; a tenth country reuses the first colour.
+SERIES_COLOURS = ["1C5CAB", "EB6834", "1BAF7A", "EDA100", "E87BA4",
+                  "008300", "4A3AA7", "E34948", "00A2D3"]
 
-# Office accent palette, then darker variants - the cycle Excel itself uses once
-# a chart runs past six series (see the reference chart's colours).
-SERIES_COLOURS = ["4F81BD", "C0504D", "9BBB59", "8064A2", "4BACC6",
-                  "F79646", "254061", "953735", "77933C"]
-GRIDLINE_COLOUR = "D9D9D9"
+TABLE_STYLE = "TPS Table"
+HEADER_FONT = Font(bold=True, size=10, color="FFFFFF")
+BODY_FONT = Font(size=10, color=INK)
+TOTAL_FONT = Font(bold=True, size=10, color=NAVY)
+CENTER = Alignment(horizontal="center", vertical="center")
+LEFT = Alignment(horizontal="left", vertical="center", indent=1)
+RIGHT = Alignment(horizontal="right", vertical="center", indent=1)
 
-CENTER = Alignment(horizontal="center")
-CENTER_MIDDLE = Alignment(horizontal="center", vertical="center")
-LEFT = Alignment(horizontal="left")
-RIGHT = Alignment(horizontal="right")
+FIRST_CONTENT_ROW = 6  # below the title, subtitle and accent rule
 
 
 def render_summary_excel(report_month: date | None = None) -> Workbook:
@@ -82,75 +95,199 @@ def render_summary_excel(report_month: date | None = None) -> Workbook:
     year = report_month.year
 
     _build_summary_sheet(wb, sources, compliance_data, country_data,
-                         chart_labels, country_order, month_name, year)
+                         chart_labels, country_order, month_name, year,
+                         (region_working_days(report_month)["cn"],
+                          calendar.monthrange(report_month.year, report_month.month)[1]))
     _build_visibility_sheet(wb, line_details, line_totals, month_name, year)
     _build_top_performers_sheet(wb, top_suppliers, month_name, year)
     _build_follow_up_required_sheet(wb, suppliers_below, email_map, f"{month_name} {year}")
     _build_yearly_performance_sheet(wb, all_supplier_trend, month_labels, year)
 
+    wb.properties.title = f"TPS Compliance Report – {month_name} {year}"
+    wb.properties.creator = "PAC-D"
     return wb
 
 
-def _set_widths(ws, widths):
-    for letter, width in widths.items():
-        ws.column_dimensions[letter].width = width
+def _fill(colour):
+    return PatternFill(fill_type="solid", start_color=colour, end_color=colour)
 
 
-def _add_table(ws, name, ref, style, columns, totals_row_count=None):
-    table = Table(displayName=name, ref=ref, totalsRowCount=totals_row_count,
+def _ensure_table_style(wb):
+    """Register the custom table style once per workbook (openpyxl has no public API for it)."""
+    if wb._table_styles is not None and any(s.name == TABLE_STYLE for s in wb._table_styles.tableStyle):
+        return
+
+    def dxf(**style):
+        wb._differential_styles.append(DifferentialStyle(**style))
+        return len(wb._differential_styles.styles) - 1
+
+    hairline = Side(style="thin", color=LINE)
+    elements = [
+        TableStyleElement(type="wholeTable", dxfId=dxf(border=Border(bottom=hairline, horizontal=hairline))),
+        TableStyleElement(type="headerRow", dxfId=dxf(fill=PatternFill(fill_type="solid", bgColor=NAVY),
+                                                      font=Font(bold=True, color="FFFFFF"))),
+        TableStyleElement(type="firstRowStripe", dxfId=dxf(fill=PatternFill(fill_type="solid", bgColor=STRIPE))),
+        TableStyleElement(type="totalRow", dxfId=dxf(fill=PatternFill(fill_type="solid", bgColor=TINT),
+                                                     font=Font(bold=True, color=NAVY),
+                                                     border=Border(top=Side(style="medium", color=NAVY)))),
+    ]
+    wb._table_styles = TableStyleList(tableStyle=[
+        TableStyle(name=TABLE_STYLE, pivot=False, table=True, tableStyleElement=elements)])
+
+
+def _frame(ws, title, subtitle, last_col, tab_colour, accent=CYAN, print_title_rows=None):
+    """Margin column, title, subtitle and accent rule (rows 1-5), and print setup."""
+    ws.sheet_view.showGridLines = False
+    ws.sheet_properties.tabColor = tab_colour
+    ws.column_dimensions["A"].width = 2.5
+    ws.row_dimensions[1].height = 10
+
+    ws["B2"] = title
+    ws["B2"].font = Font(bold=True, size=18, color=NAVY)
+    ws.row_dimensions[2].height = 30
+    ws["B3"] = subtitle
+    ws["B3"].font = Font(size=10, color=MUTED)
+    ws.row_dimensions[4].height = 6
+    for col in range(2, last_col + 1):
+        ws.cell(row=4, column=col).border = Border(bottom=Side(style="medium", color=accent))
+    ws.row_dimensions[5].height = 10
+
+    setup = ws.page_setup
+    setup.orientation = "landscape"
+    setup.paperSize = ws.PAPERSIZE_A4
+    setup.fitToWidth, setup.fitToHeight = 1, 0
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.print_options.horizontalCentered = True
+    ws.page_margins.left = ws.page_margins.right = 0.4
+    ws.page_margins.top, ws.page_margins.bottom = 0.5, 0.6
+    ws.oddFooter.left.text, ws.oddFooter.left.size = f"{title} · {subtitle}", 8
+    ws.oddFooter.right.text, ws.oddFooter.right.size = "Page &P of &N", 8
+    if print_title_rows:
+        ws.print_title_rows = print_title_rows
+
+
+def _add_table(ws, name, first_row, first_col, headers, rows, aligns, formats,
+               totals=None, widths=None):
+    """An Excel table with its header at (first_row, first_col).
+
+    totals maps a header to ("label", text) or (function, subtotal_code), e.g.
+    ("average", 101), and adds a totals row. Returns the table's last row.
+    """
+    _ensure_table_style(ws.parent)
+    for j, header in enumerate(headers):
+        cell = ws.cell(row=first_row, column=first_col + j, value=header)
+        cell.font = HEADER_FONT
+        cell.alignment = Alignment(horizontal=aligns[j].horizontal, vertical="center",
+                                   indent=aligns[j].indent, wrap_text=True)
+    ws.row_dimensions[first_row].height = 24
+
+    for i, values in enumerate(rows, 1):
+        for j, value in enumerate(values):
+            cell = ws.cell(row=first_row + i, column=first_col + j, value=value)
+            cell.font, cell.alignment, cell.number_format = BODY_FONT, aligns[j], formats[j]
+        ws.row_dimensions[first_row + i].height = 18
+
+    last_row = first_row + len(rows)
+    columns = [TableColumn(id=j + 1, name=header) for j, header in enumerate(headers)]
+    if totals:
+        last_row += 1
+        ws.row_dimensions[last_row].height = 20
+        for j, header in enumerate(headers):
+            cell = ws.cell(row=last_row, column=first_col + j)
+            cell.font, cell.alignment, cell.number_format = TOTAL_FONT, aligns[j], formats[j]
+            if header not in totals:
+                continue
+            kind, value = totals[header]
+            if kind == "label":
+                cell.value = columns[j].totalsRowLabel = value
+            else:
+                cell.value = f"=SUBTOTAL({value},{name}[{header}])"
+                columns[j].totalsRowFunction = kind
+
+    ref = (f"{get_column_letter(first_col)}{first_row}"
+           f":{get_column_letter(first_col + len(headers) - 1)}{last_row}")
+    table = Table(displayName=name, ref=ref, totalsRowCount=1 if totals else None,
                   tableColumns=columns)
-    table.tableStyleInfo = TableStyleInfo(
-        name=style, showRowStripes=True, showColumnStripes=False,
-        showFirstColumn=False, showLastColumn=False,
-    )
+    table.tableStyleInfo = TableStyleInfo(name=TABLE_STYLE, showRowStripes=True,
+                                          showColumnStripes=False, showFirstColumn=False,
+                                          showLastColumn=False)
     ws.add_table(table)
-    return table
+    for j, width in enumerate(widths or []):
+        ws.column_dimensions[get_column_letter(first_col + j)].width = width
+    return last_row
 
 
-def _title(ws, ref, text, size=13):
-    ws.merge_cells(ref)
-    cell = ws[ref.split(":")[0]]
-    cell.value = text
-    cell.font = Font(bold=True, size=size, color=ACCENT)
-    cell.alignment = CENTER_MIDDLE
-    return cell
+def _data_bars(ws, ref, max_value=None):
+    if max_value is None:
+        rule = DataBarRule(start_type="min", end_type="max", color=CYAN, showValue=True)
+    else:
+        rule = DataBarRule(start_type="num", start_value=0, end_type="num", end_value=max_value,
+                           color=CYAN, showValue=True)
+    ws.conditional_formatting.add(ref, rule)
 
 
-def _chart_text(text, size, bold=True, colour=ACCENT, rotation=None):
+def _section(ws, row, col, text):
+    ws.cell(row=row, column=col, value=text).font = Font(bold=True, size=12, color=NAVY)
+    ws.row_dimensions[row].height = 22
+
+
+def _chart_text(text, size, colour=NAVY, rotation=None):
     """A styled chart/axis title. openpyxl's plain string titles are unstyled."""
-    props = CharacterProperties(sz=size * 100, b=bold, solidFill=colour)
-    paragraph = Paragraph(
-        pPr=ParagraphProperties(defRPr=props),
-        r=[RegularTextRun(rPr=props, t=text)],
-    )
+    props = CharacterProperties(sz=size * 100, b=True, solidFill=colour)
+    paragraph = Paragraph(pPr=ParagraphProperties(defRPr=props), r=[RegularTextRun(rPr=props, t=text)])
     body = RichTextProperties(rot=rotation, vert="horz")
-    return Title(tx=Text(rich=RichText(bodyPr=body, p=[paragraph])))
+    return Title(tx=Text(rich=RichText(bodyPr=body, p=[paragraph])), overlay=False)
+
+
+def _text_properties(size, colour):
+    return RichText(p=[Paragraph(pPr=ParagraphProperties(
+        defRPr=CharacterProperties(sz=size * 100, solidFill=colour)))])
 
 
 def _value_only_labels():
     """Every flag must be explicit - Excel treats an omitted flag as ON, which
     is what turned the labels into "Vietnam, Jan '26, 100.0%"."""
-    return DataLabelList(
-        dLblPos="outEnd",
-        showVal=True,
-        showSerName=False,
-        showCatName=False,
-        showLegendKey=False,
-        showPercent=False,
-        showBubbleSize=False,
-    )
+    labels = DataLabelList(dLblPos="outEnd", showVal=True, showSerName=False, showCatName=False,
+                           showLegendKey=False, showPercent=False, showBubbleSize=False)
+    labels.txPr = _text_properties(7, MUTED)
+    return labels
 
 
-def _add_trend_chart(ws, header_row, first_row, last_row, label_col, last_value_col):
+# --- Summary sheet ----------------------------------------------------------------
+
+def _tile_cell(ws, row, first, last, value, font, number_format="General"):
+    if last > first:
+        ws.merge_cells(start_row=row, start_column=first, end_row=row, end_column=last)
+    cell = ws.cell(row=row, column=first, value=value)
+    cell.font, cell.number_format = font, number_format
+    cell.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+
+
+def _kpi_tile(ws, row, first, last, label, value, number_format, caption):
+    """Label, big value and caption over three rows of columns first..last, under a cyan
+    accent line. Tiles sit side by side; a white edge on the left keeps them apart."""
+    _tile_cell(ws, row, first, last, label.upper(), Font(bold=True, size=8, color=MUTED))
+    _tile_cell(ws, row + 1, first, last, value, Font(bold=True, size=24, color=NAVY), number_format)
+    _tile_cell(ws, row + 2, first, last, caption, Font(size=8, color=MUTED))
+    gap = Side(style="thick", color="FFFFFF")
+    for r in range(row, row + 3):
+        for col in range(first, last + 1):
+            ws.cell(row=r, column=col).fill = _fill(STRIPE)
+            ws.cell(row=r, column=col).border = Border(
+                top=Side(style="thick", color=CYAN) if r == row else None,
+                left=gap if col == first else None)
+
+
+def _add_trend_chart(ws, header_row, last_row, label_col, last_value_col, top_row, last_col):
     """Clustered column chart: one series per country, months as categories."""
     chart = BarChart()
     chart.type = "col"
     chart.grouping = "clustered"
-    chart.gapWidth = 100
-    chart.overlap = -24
-    chart.title = _chart_text("Compliance Rate by Country (%)", 16)
+    chart.gapWidth = 80
+    chart.overlap = -10
+    chart.title = _chart_text("Compliance Rate by Country (%)", 13)
 
-    data = Reference(ws, min_col=label_col, min_row=first_row,
+    data = Reference(ws, min_col=label_col, min_row=header_row + 1,
                      max_col=last_value_col, max_row=last_row)
     chart.add_data(data, from_rows=True, titles_from_data=True)
 
@@ -163,386 +300,234 @@ def _add_trend_chart(ws, header_row, first_row, last_row, label_col, last_value_
     for index, series in enumerate(chart.series):
         series.cat = category_ref
         series.dLbls = _value_only_labels()
-        colour = SERIES_COLOURS[index % len(SERIES_COLOURS)]
-        series.graphicalProperties = GraphicalProperties(solidFill=colour)
+        series.graphicalProperties = GraphicalProperties(solidFill=SERIES_COLOURS[index % len(SERIES_COLOURS)])
         series.graphicalProperties.line.noFill = True
 
-    chart.x_axis.title = _chart_text("Month", 9)
-    chart.y_axis.title = _chart_text("Compliance rate", 9, rotation=-5400000)
-    chart.y_axis.numFmt = NumFmt(formatCode="0.0%", sourceLinked=True)
+    chart.x_axis.title = _chart_text("Month", 9, colour=MUTED)
+    chart.y_axis.title = _chart_text("Compliance rate", 9, colour=MUTED, rotation=-5400000)
+    chart.y_axis.numFmt = NumFmt(formatCode="0%", sourceLinked=False)
 
     # Without an explicit delete=False Excel drops the axis and its labels.
     for axis in (chart.x_axis, chart.y_axis):
         axis.delete = False
         axis.tickLblPos = "nextTo"
-        axis.txPr = RichText(
-            p=[Paragraph(pPr=ParagraphProperties(
-                defRPr=CharacterProperties(sz=900, solidFill="595959")))]
-        )
+        axis.txPr = _text_properties(9, MUTED)
 
     chart.x_axis.majorGridlines = None
     chart.y_axis.majorGridlines = ChartLines(
-        spPr=GraphicalProperties(
-            ln=LineProperties(w=9525, solidFill=GRIDLINE_COLOUR))
-    )
-
+        spPr=GraphicalProperties(ln=LineProperties(w=6350, solidFill="E3E9EF")))
     chart.legend.position = "b"
     chart.legend.overlay = False
+    chart.graphical_properties = GraphicalProperties(ln=LineProperties(noFill=True))
 
-    chart.anchor = TwoCellAnchor(
-        _from=AnchorMarker(col=0, colOff=0, row=22, rowOff=359),
-        to=AnchorMarker(col=33, colOff=586684, row=65, rowOff=106829),
-    )
+    # AnchorMarker rows/columns are zero-based: the chart starts on the row below top_row
+    # and runs through last_col.
+    chart.anchor = TwoCellAnchor(_from=AnchorMarker(col=1, row=top_row),
+                                 to=AnchorMarker(col=last_col, row=top_row + 24))
     ws.add_chart(chart)
 
 
-def _build_country_trend_block(ws, country_data, chart_labels, country_order,
-                               header_row=28, label_col=4):
-    """Countries down the rows, months across the columns, as an Excel table."""
-    last_value_col = label_col + len(chart_labels)
-
-    header = ws.cell(row=header_row, column=label_col, value="Country")
-    headers = [header]
-    for offset, label in enumerate(chart_labels, 1):
-        headers.append(ws.cell(row=header_row, column=label_col + offset, value=label))
-    for cell in headers:
-        cell.font = HEADER_FONT
-        cell.fill = ACCENT_FILL
-        cell.alignment = CENTER
-
-    for i, country in enumerate(country_order):
-        row = header_row + 1 + i
-        name_cell = ws.cell(row=row, column=label_col, value=country)
-        name_cell.font = Font(bold=True, size=11)
-
-        rates = country_data.get(country, [])
-        for j in range(len(chart_labels)):
-            rate = rates[j] if j < len(rates) else None
-            # No shipments that month: leave the cell blank so the chart shows a gap, not 0%.
-            cell = ws.cell(row=row, column=label_col + 1 + j,
-                           value=None if rate is None else rate / 100.0)
-            cell.number_format = "0.0%"
-
-    first_row = header_row + 1
-    last_row = header_row + len(country_order)
-
-    columns = [TableColumn(id=1, name="Country")]
-    for i, label in enumerate(chart_labels, 2):
-        columns.append(TableColumn(id=i, name=label))
-
-    ref = (f"{get_column_letter(label_col)}{header_row}"
-           f":{get_column_letter(last_value_col)}{last_row}")
-    _add_table(ws, "Table2", ref, "TableStyleLight9", columns)
-
-    _add_trend_chart(ws, header_row, first_row, last_row, label_col, last_value_col)
-
-
 def _build_summary_sheet(wb, sources, compliance_data, country_data,
-                         chart_labels, country_order, month_name, year):
+                         chart_labels, country_order, month_name, year, working_days=None):
+    """working_days: (working days Monday to Friday, days in the month), shown as a tile when given."""
     ws = wb.create_sheet("Summary")
-    ws.sheet_view.showGridLines = False
+    months = len(chart_labels)
+    last_col = max(5 + months, 15)  # trend table ends at column 5 + months; tiles reach O
+    _frame(ws, "TPS Compliance Report", f"Summary for {month_name} {year}", last_col, NAVY)
+    # The tiles share these columns with the tables below; the widths make the four tiles
+    # B:C, D:G, H:K and L:O come out the same width (34, 36, 34, 34).
+    for letter, width in (("B", 18), ("C", 16), ("D", 3), ("E", 16)):
+        ws.column_dimensions[letter].width = width
+    for col in range(6, 6 + max(months, 10)):
+        ws.column_dimensions[get_column_letter(col)].width = 8.5
 
-    _title(ws, "A1:F1", "TPS COMPLIANCE REPORT", size=14)
-    ws.row_dimensions[1].height = 25
+    tile_row = FIRST_CONTENT_ROW
+    table_row = tile_row + 5  # tiles, a gap, the section labels, then the table headers
+    average_row = table_row + len(compliance_data) + 1
+    for r, height in ((tile_row, 18), (tile_row + 1, 36), (tile_row + 2, 16)):
+        ws.row_dimensions[r].height = height
+    _kpi_tile(ws, tile_row, 2, 3, "Suppliers", sources["total_suppliers"], "#,##0", "Sources this month")
+    _kpi_tile(ws, tile_row, 4, 7, "Factories", sources["total_factories"], "#,##0", "Sources this month")
+    _kpi_tile(ws, tile_row, 8, 11, "Average compliance", f"=C{average_row}", "0%", "Across countries")
+    if working_days is not None:
+        days, days_in_month = working_days
+        _kpi_tile(ws, tile_row, 12, 15, "Working days", days, f'0" / {days_in_month}"', "Monday to Friday")
 
-    ws.merge_cells("A2:F2")
-    ws["A2"] = f"Summary for {month_name} {year}"
-    ws["A2"].font = SUBTITLE_FONT
-    ws["A2"].alignment = CENTER_MIDDLE
-
-    ws["A3"] = "Sources"
-    ws["A3"].font = SECTION_FONT
-
-    for col, label in ((1, "Supplier"), (2, "Factory")):
-        cell = ws.cell(row=4, column=col, value=label)
-        cell.font = HEADER_FONT
-        cell.fill = ACCENT_FILL
-        cell.alignment = CENTER
-
-    for col, value in ((1, sources["total_suppliers"]), (2, sources["total_factories"])):
-        cell = ws.cell(row=5, column=col, value=value)
-        cell.font = Font(size=10)
-        cell.alignment = CENTER
-
-    ws["A7"] = "Volume (Compliant Only)"
-    ws["A7"].font = SECTION_FONT
-
-    # A8:B18 - Table3 supplies the header styling and the Average totals row.
-    for col, label in ((1, "Country"), (2, "Compliance Score")):
-        cell = ws.cell(row=8, column=col, value=label)
-        cell.font = Font(bold=True, size=11)
-        cell.alignment = CENTER
-
-    for i, item in enumerate(compliance_data):
-        row = 9 + i
-        name_cell = ws.cell(row=row, column=1, value=item["country"])
-        name_cell.font = Font(size=10)
-        name_cell.alignment = LEFT
-
-        rate_cell = ws.cell(row=row, column=2, value=item["compliance_rate"] / 100.0)
-        rate_cell.number_format = "0%"
-
-    totals_row = 9 + len(compliance_data)
-    label_cell = ws.cell(row=totals_row, column=1, value="Average")
-    label_cell.font = Font(size=10)
-    label_cell.alignment = LEFT
-
-    average_cell = ws.cell(row=totals_row, column=2,
-                           value="=SUBTOTAL(101,Table3[Compliance Score])")
-    average_cell.number_format = "0%"
-    average_cell.font = Font(size=10)
-    average_cell.alignment = RIGHT
-
-    _add_table(
-        ws, "Table3", f"A8:B{totals_row}", "TableStyleMedium9",
-        [
-            TableColumn(id=1, name="Country", totalsRowLabel="Average"),
-            TableColumn(id=2, name="Compliance Score", totalsRowFunction="average"),
-        ],
-        totals_row_count=1,
+    _section(ws, table_row - 1, 5, "Compliance Rate by Country")
+    last_scores = _add_table(
+        ws, "Table3", table_row, 2, ["Country", "Compliance Score"],
+        [(item["country"], item["compliance_rate"] / 100.0) for item in compliance_data],
+        [LEFT, RIGHT], ["General", "0%"],
+        totals={"Country": ("label", "Average"), "Compliance Score": ("average", 101)},
     )
+    _data_bars(ws, f"C{table_row + 1}:C{last_scores - 1}", max_value=1)
 
-    _build_country_trend_block(ws, country_data, chart_labels, country_order)
+    trend_rows = []
+    for country in country_order:
+        rates = country_data.get(country, [])
+        # No shipments that month: leave the cell blank so the chart shows a gap, not 0%.
+        trend_rows.append([country] + [None if j >= len(rates) or rates[j] is None else rates[j] / 100.0
+                                       for j in range(months)])
+    last_trend = _add_table(ws, "Table2", table_row, 5, ["Country"] + list(chart_labels), trend_rows,
+                            [LEFT] + [CENTER] * months, ["General"] + ["0%"] * months)
+    ws.conditional_formatting.add(
+        f"F{table_row + 1}:{get_column_letter(5 + months)}{last_trend}",
+        ColorScaleRule(start_type="num", start_value=0, start_color="F8D7D5",
+                       mid_type="num", mid_value=0.6, mid_color="FFFFFF",
+                       end_type="num", end_value=1, end_color="D5F0E3"))
 
-    _set_widths(ws, {"A": 22.0, "B": 24.36, "C": 15.0, "D": 11.18,
-                     "E": 7.18, "F": 7.0, "G": 7.36, "H": 6.82})
-    ws.freeze_panes = "A2"
+    chart_row = max(last_scores, last_trend) + 2
+    _section(ws, chart_row, 2, "Monthly Trend")
+    _add_trend_chart(ws, table_row, last_trend, 5, 5 + months, chart_row, last_col)
+    ws.page_setup.fitToHeight = 1  # the dashboard prints on one page
 
+
+# --- Visibility and Top Performers -------------------------------------------------
 
 def _build_visibility_sheet(wb, line_details, line_totals, month_name, year):
     ws = wb.create_sheet("Visibility")
-    ws.sheet_view.showGridLines = False
-
-    _title(ws, "A1:E1", f"Visibility – {month_name} {year}")
-    ws.row_dimensions[1].height = 16.5
-
-    headers = ["Origin Country", "Destination PO", "Reflected Lines",
-               "Approved", "Rejected"]
-    for col, label in enumerate(headers, 1):
-        cell = ws.cell(row=2, column=col, value=label)
-        cell.font = HEADER_FONT
-        cell.fill = ACCENT_FILL
-        cell.alignment = CENTER
+    headers = ["Origin Country", "Destination PO", "Reflected Lines", "Approved", "Rejected"]
+    first = FIRST_CONTENT_ROW
+    _frame(ws, "Visibility", f"{month_name} {year}", 6, CYAN, print_title_rows=f"{first}:{first}")
 
     fields = ["country", "dest_po_count", "reflected_lines", "approved", "rejected"]
-    for i, item in enumerate(line_details):
-        row = 3 + i
-        for col, field in enumerate(fields, 1):
-            ws.cell(row=row, column=col, value=item[field])
-
-    totals_row = 3 + len(line_details)
-    total_fill = PatternFill(start_color=TOTAL_ROW_FILL, end_color=TOTAL_ROW_FILL,
-                             fill_type="solid")
-
-    label_cell = ws.cell(row=totals_row, column=1, value="Total")
-    label_cell.font = Font(size=10)
-    label_cell.alignment = LEFT
-    label_cell.fill = total_fill
-
-    for col, header in enumerate(headers[1:], 2):
-        cell = ws.cell(row=totals_row, column=col,
-                       value=f"=SUBTOTAL(109,Table9[{header}])")
-        cell.font = Font(size=10)
-        cell.alignment = RIGHT
-        cell.fill = total_fill
-
-    columns = [TableColumn(id=1, name="Origin Country", totalsRowLabel="Total")]
-    for i, header in enumerate(headers[1:], 2):
-        columns.append(TableColumn(id=i, name=header, totalsRowFunction="sum"))
-
-    _add_table(ws, "Table9", f"A2:E{totals_row}", "TableStyleMedium2", columns,
-               totals_row_count=1)
-
-    _set_widths(ws, {"A": 24.45, "B": 16.63, "C": 33.45, "D": 18.36, "E": 15.82})
-    ws.freeze_panes = "A3"
+    last = _add_table(
+        ws, "Table9", first, 2, headers, [[item[f] for f in fields] for item in line_details],
+        [LEFT] + [RIGHT] * 4, ["General"] + ["#,##0"] * 4,
+        totals={"Origin Country": ("label", "Total"), **{h: ("sum", 109) for h in headers[1:]}},
+        widths=[24, 17, 17, 17, 17],
+    )
+    _data_bars(ws, f"D{first + 1}:D{last - 1}")
+    ws.freeze_panes = f"A{first + 1}"
 
 
 def _build_top_performers_sheet(wb, top_suppliers, month_name, year):
     ws = wb.create_sheet("Top Performers")
-    ws.sheet_view.showGridLines = False
-
-    _title(ws, "A1:G1", f"Top Suppliers  – {month_name} {year}")
-    ws.row_dimensions[1].height = 16.5
-
     headers = ["#", "Origin", "Supplier", "No. of Factories", "Destination PO",
                "Reflected Lines", "Compliance Score"]
-    for col, label in enumerate(headers, 1):
-        cell = ws.cell(row=2, column=col, value=label)
-        cell.font = HEADER_FONT
-        cell.alignment = CENTER
+    first = FIRST_CONTENT_ROW
+    _frame(ws, "Top Suppliers", f"{month_name} {year}", 8, CYAN, print_title_rows=f"{first}:{first}")
 
-    fields = ["origin_countries", "supplier", "factory_count", "dest_po_count",
-              "reflected_lines"]
-    for i, supplier in enumerate(top_suppliers):
-        row = 3 + i
+    rows = [[s["sl"], s["origin_countries"], s["supplier"], s["factory_count"], s["dest_po_count"],
+             s["reflected_lines"], s["compliance_rate"] / 100.0] for s in top_suppliers]
+    last = _add_table(ws, "Table8", first, 2, headers, rows,
+                      [CENTER, LEFT, LEFT, RIGHT, RIGHT, RIGHT, RIGHT],
+                      ["0", "General", "General", "#,##0", "#,##0", "#,##0", "0%"],
+                      widths=[6, 24, 58, 15, 15, 15, 17])
+    _data_bars(ws, f"G{first + 1}:G{last}")
+    ws.freeze_panes = f"A{first + 1}"
 
-        index_cell = ws.cell(row=row, column=1, value=supplier["sl"])
-        index_cell.font = Font(size=10)
-        index_cell.alignment = CENTER
-
-        for col, field in enumerate(fields, 2):
-            ws.cell(row=row, column=col, value=supplier[field])
-
-        rate_cell = ws.cell(row=row, column=7,
-                            value=supplier["compliance_rate"] / 100.0)
-        rate_cell.number_format = "0%"
-
-    last_row = 2 + len(top_suppliers)
-    columns = [TableColumn(id=i, name=label) for i, label in enumerate(headers, 1)]
-    _add_table(ws, "Table8", f"A2:G{last_row}", "TableStyleLight9", columns)
-
-    _set_widths(ws, {"A": 5.0, "B": 27.82, "C": 69.18, "D": 17.45,
-                     "E": 16.63, "F": 17.18, "G": 19.63})
-    ws.freeze_panes = "A3"
 
 # --- Follow-Up Required sheet ---------------------------------------------------
 
-FOLLOW_UP_HEADER_FILL = PatternFill(start_color="156082", end_color="156082", fill_type="solid")
-FOLLOW_UP_HEADER_FONT = Font(bold=True, size=10, color="FFFFFF")
-FOLLOW_UP_HEADERS = ["Sl ", "Origin Country ", "Supplier Name ", "No of Factories ",
-                     "Destination PO Qty ", "Reflected Lines ", "Compliance Score ", "Email "]
-# Header cells that are explicitly centred; the rest keep the default alignment.
-FOLLOW_UP_CENTERED = {2, 4, 5, 6, 7}
-FOLLOW_UP_WIDTHS = {"A": 5.0, "B": 22.0, "C": 45.0, "D": 17.45,
-                    "E": 16.63, "F": 17.18, "G": 19.63, "H": 92.82}
+FOLLOW_UP_HEADERS = ["Sl", "Origin Country", "Supplier Name", "No of Factories",
+                     "Destination PO Qty", "Reflected Lines", "Compliance Score", "Email"]
 
 
 def _build_follow_up_required_sheet(wb, suppliers_below, email_map, month_label):
     ws = wb.create_sheet("Follow-Up Required")
-    ws.sheet_view.showGridLines = False
+    first = FIRST_CONTENT_ROW
+    _frame(ws, "Follow-Up Required", f"Avg. Compliance <40% – Last 3 Months · {month_label}",
+           9, ALERT, accent=ALERT, print_title_rows=f"{first}:{first}")
 
-    _title(ws, "A1:H1", f"Follow-Up Required (Avg. Compliance <40% – Last 3 Months) – {month_label}")
-    ws.row_dimensions[1].height = 17.0
-
-    for col, label in enumerate(FOLLOW_UP_HEADERS, 1):
-        cell = ws.cell(row=2, column=col, value=label)
-        cell.font = FOLLOW_UP_HEADER_FONT
-        cell.fill = FOLLOW_UP_HEADER_FILL
-        if col in FOLLOW_UP_CENTERED:
-            cell.alignment = CENTER
-
-    for i, supplier in enumerate(suppliers_below):
-        row = 3 + i
-
-        index_cell = ws.cell(row=row, column=1, value=supplier["sl"])
-        index_cell.font = Font(size=10)
-        index_cell.alignment = CENTER
-
-        ws.cell(row=row, column=2, value=supplier["origin_country"])
-        ws.cell(row=row, column=3, value=supplier["supplier"])
-
-        for col, field in ((4, "factory_count"), (5, "dest_po_count"),
-                           (6, "reflected_lines")):
-            cell = ws.cell(row=row, column=col, value=supplier[field])
-            cell.alignment = CENTER
-
+    rows = []
+    for supplier in suppliers_below:
         rate = supplier.get("avg_3month")
         if rate is None:
             rate = supplier.get("compliance_rate", 0)
-        rate_cell = ws.cell(row=row, column=7, value=rate / 100.0)
-        rate_cell.number_format = "0%"
-        rate_cell.alignment = CENTER
+        rows.append([supplier["sl"], supplier["origin_country"], supplier["supplier"],
+                     supplier["factory_count"], supplier["dest_po_count"], supplier["reflected_lines"],
+                     rate / 100.0, email_map.get(supplier["supplier"].strip().lower(), "")])
+    last = _add_table(ws, "Table6", first, 2, FOLLOW_UP_HEADERS, rows,
+                      [CENTER, LEFT, LEFT, RIGHT, RIGHT, RIGHT, RIGHT, LEFT],
+                      ["0", "General", "General", "#,##0", "#,##0", "#,##0", "0%", "General"],
+                      widths=[6, 22, 46, 15, 17, 15, 17, 40])
 
-        ws.cell(row=row, column=8,
-                value=email_map.get(supplier["supplier"].strip().lower(), ""))
-
-    last_row = 2 + len(suppliers_below)
-    columns = [TableColumn(id=i, name=label) for i, label in enumerate(FOLLOW_UP_HEADERS, 1)]
-    _add_table(ws, "Table6", f"A2:H{last_row}", "TableStyleLight9", columns)
-
-    _set_widths(ws, FOLLOW_UP_WIDTHS)
-    ws.freeze_panes = "A3"
+    for row in range(first + 1, last + 1):
+        ws.cell(row=row, column=8).font = Font(bold=True, size=10, color=LOW_TEXT)
+        email = ws.cell(row=row, column=9)
+        if email.value:
+            email.hyperlink = "mailto:" + email.value.replace(" ", "")
+            email.font = Font(size=10, color=LINK, underline="single")
+    ws.freeze_panes = f"A{first + 1}"
 
 
 # --- Yearly Performance sheet ---------------------------------------------------
 
-THIN_BORDER = Border(left=Side(style="thin"), right=Side(style="thin"),
-                     top=Side(style="thin"), bottom=Side(style="thin"))
-BAND_FILL = PatternFill(start_color="F9FAFB", end_color="F9FAFB", fill_type="solid")
-YEAR_FILL = PatternFill(start_color="4A5568", end_color="4A5568", fill_type="solid")
-YEARLY_HEADER_FILL = PatternFill(start_color="1B2838", end_color="1B2838", fill_type="solid")
-
-# Widths carried over from the reference workbook; extra months fall back to
-# the width used by most month columns.
-MONTH_WIDTHS = [10.45, 10.63, 11.0, 10.45, 11.36, 10.45, 13.63]
-DEFAULT_MONTH_WIDTH = 10.45
-
-YEAR_BAND_ROW = 6
-HEADER_ROW = 7
-FIRST_DATA_ROW = 8
+YEAR_BAND_ROW = FIRST_CONTENT_ROW
+HEADER_ROW = YEAR_BAND_ROW + 1
+FIRST_DATA_ROW = HEADER_ROW + 1
 
 
 def _build_yearly_performance_sheet(wb, supplier_trend, month_labels, year):
     ws = wb.create_sheet("Yearly Performance")
-    ws.sheet_view.showGridLines = False
-
     num_months = len(month_labels)
-    last_month_col = 2 + num_months
+    first_month_col = 4
+    last_month_col = first_month_col + num_months - 1
     total_col = last_month_col + 1
     last_month_letter = get_column_letter(last_month_col)
 
-    _title(ws, f"A1:{last_month_letter}1",
-           f"Suppliers Yearly Performance – January {year} "
-           f"to {chart_end_caption(month_labels, year)}")
-    ws.row_dimensions[1].height = 16.5
+    _frame(ws, "Suppliers Yearly Performance",
+           f"January {year} to {chart_end_caption(month_labels, year)}",
+           total_col, NAVY, print_title_rows=f"{YEAR_BAND_ROW}:{HEADER_ROW}")
+    ws.column_dimensions["B"].width = 6
+    ws.column_dimensions["C"].width = 66
+    for col in range(first_month_col, total_col):
+        ws.column_dimensions[get_column_letter(col)].width = 10
+    ws.column_dimensions[get_column_letter(total_col)].width = 11
 
-    ws.merge_cells(f"A{YEAR_BAND_ROW}:B{YEAR_BAND_ROW}")
-    ws.merge_cells(f"C{YEAR_BAND_ROW}:{last_month_letter}{YEAR_BAND_ROW}")
-    year_cell = ws.cell(row=YEAR_BAND_ROW, column=3, value=year)
-    year_cell.font = Font(bold=True, color="FFFFFF", size=11)
-    year_cell.fill = YEAR_FILL
-    year_cell.alignment = CENTER_MIDDLE
-    year_cell.border = Border(bottom=Side(style="thin"))
+    ws.merge_cells(start_row=YEAR_BAND_ROW, start_column=first_month_col,
+                   end_row=YEAR_BAND_ROW, end_column=last_month_col)
+    band = ws.cell(row=YEAR_BAND_ROW, column=first_month_col, value=year)
+    band.font, band.alignment = Font(bold=True, size=10, color="FFFFFF"), CENTER
+    for col in range(first_month_col, last_month_col + 1):
+        ws.cell(row=YEAR_BAND_ROW, column=col).fill = _fill(CYAN)
 
-    headers = ["#", "Supplier Name"] + list(month_labels) + ["Total"]
-    for col, label in enumerate(headers, 1):
-        cell = ws.cell(row=HEADER_ROW, column=col, value=label)
-        cell.font = Font(bold=True, color="FFFFFF", size=9)
-        cell.fill = YEARLY_HEADER_FILL
-        cell.alignment = CENTER_MIDDLE
-        cell.border = THIN_BORDER
+    for j, label in enumerate(["#", "Supplier Name"] + list(month_labels) + ["Total"]):
+        cell = ws.cell(row=HEADER_ROW, column=2 + j, value=label)
+        cell.font, cell.fill = HEADER_FONT, _fill(NAVY)
+        cell.alignment = LEFT if j == 1 else CENTER
+    ws.row_dimensions[HEADER_ROW].height = 24
 
-    ws.column_dimensions["A"].width = 6.45
-    ws.column_dimensions["B"].width = 81.36
-    for i in range(num_months):
-        width = MONTH_WIDTHS[i] if i < len(MONTH_WIDTHS) else DEFAULT_MONTH_WIDTH
-        ws.column_dimensions[get_column_letter(3 + i)].width = width
-    ws.column_dimensions[get_column_letter(total_col)].width = 7.82
-
+    hairline = Side(style="thin", color=LINE)
     for idx, supplier in enumerate(supplier_trend, start=1):
         row = HEADER_ROW + idx
-        banded = idx % 2 == 0
-
-        ws.cell(row=row, column=1, value=idx).alignment = CENTER
-        ws.cell(row=row, column=2, value=supplier["supplier"]).alignment = LEFT
+        ws.row_dimensions[row].height = 18
+        ws.cell(row=row, column=2, value=idx).alignment = CENTER
+        ws.cell(row=row, column=3, value=supplier["supplier"]).alignment = LEFT
 
         for i, rate in enumerate(supplier["rates"]):
-            cell = ws.cell(row=row, column=3 + i)
             # A month with no data stays genuinely empty, so AVERAGE skips it.
-            if rate is not None:
-                cell.value = rate / 100.0
-                cell.number_format = "0.00%"
-                if rate < 40:
-                    cell.font = Font(color="DC2626", bold=True, size=11)
-                elif rate < 60:
-                    cell.font = Font(color="EA580C", size=11)
-            cell.alignment = CENTER
+            cell = ws.cell(row=row, column=first_month_col + i, value=None if rate is None else rate / 100.0)
+            cell.number_format, cell.alignment = "0.0%", CENTER
 
-        total_cell = ws.cell(row=row, column=total_col)
-        total_cell.value = f'=IFERROR(AVERAGE(C{row}:{last_month_letter}{row}),"")'
-        total_cell.number_format = "0.00%"
-        total_cell.alignment = CENTER
-        total_cell.font = Font(bold=True, size=11)
+        total = ws.cell(row=row, column=total_col,
+                        value=f'=IFERROR(AVERAGE({get_column_letter(first_month_col)}{row}'
+                              f':{last_month_letter}{row}),"")')
+        total.number_format, total.alignment = "0.0%", CENTER
 
-        for col in range(1, total_col + 1):
+        for col in range(2, total_col + 1):
             cell = ws.cell(row=row, column=col)
-            cell.border = THIN_BORDER
-            if banded:
-                cell.fill = BAND_FILL
+            cell.border = Border(bottom=hairline)
+            cell.font = TOTAL_FONT if col == total_col else BODY_FONT
+            if col == total_col:
+                cell.fill = _fill(TINT)
+            elif idx % 2 == 0:
+                cell.fill = _fill(STRIPE)
 
     last_row = HEADER_ROW + len(supplier_trend)
-    ws.auto_filter.ref = f"A{HEADER_ROW}:{get_column_letter(total_col)}{last_row}"
-    ws.freeze_panes = f"A{FIRST_DATA_ROW}"
+    rates = f"{get_column_letter(first_month_col)}{FIRST_DATA_ROW}:{get_column_letter(total_col)}{last_row}"
+    # Blank months (no data) stay unshaded, so each rule checks ISNUMBER before the threshold.
+    top_left = f"{get_column_letter(first_month_col)}{FIRST_DATA_ROW}"
+    ws.conditional_formatting.add(rates, FormulaRule(
+        formula=[f"AND(ISNUMBER({top_left}),{top_left}<0.4)"],
+        fill=_fill(LOW_FILL), font=Font(bold=True, color=LOW_TEXT)))
+    ws.conditional_formatting.add(rates, FormulaRule(
+        formula=[f"AND(ISNUMBER({top_left}),{top_left}>=0.4,{top_left}<0.6)"],
+        fill=_fill(MID_FILL), font=Font(color=MID_TEXT)))
+
+    ws.auto_filter.ref = f"B{HEADER_ROW}:{get_column_letter(total_col)}{last_row}"
+    ws.freeze_panes = f"D{FIRST_DATA_ROW}"
 
 
 def chart_end_caption(month_labels, year):

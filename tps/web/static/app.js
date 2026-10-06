@@ -131,6 +131,8 @@ async function poll() {
     polling = null;
     loadMonth();
     if ($("logs").open) loadLogs();
+    // An import may have changed the list; don't swap out a field being edited.
+    if ($("suppliers").open && !$("supplier-list").contains(document.activeElement)) loadSuppliers();
   }
 }
 
@@ -173,6 +175,74 @@ async function loadLogs() {
   log.textContent = lines.length ? lines.join("\n") : "No log entries yet.";
   log.scrollTop = log.scrollHeight;
 }
+
+// Suppliers: the whole list loads once; search and filters only hide rows.
+let suppliers = [];
+
+async function loadSuppliers() {
+  suppliers = await (await fetch("/suppliers")).json();
+  const monthSelect = $("supplier-month");
+  const chosen = monthSelect.value;
+  const months = [...new Set(suppliers.flatMap((s) => Object.keys(s.months)))].sort().reverse();
+  monthSelect.replaceChildren(el("option", "All months", { value: "" }), ...months.map((m) =>
+    el("option", new Date(m + "-01T00:00").toLocaleDateString(undefined, { month: "long", year: "numeric" }), { value: m })));
+  monthSelect.value = months.includes(chosen) ? chosen : "";
+  $("supplier-list").replaceChildren(...suppliers.map(supplierRow));
+  filterSuppliers();
+}
+
+function supplierRow(supplier) {
+  const input = el("input", "", { type: "email", multiple: true, value: supplier.emails,
+                                  className: "field", placeholder: "No email" });
+  const state = el("span", "", { className: "save-state secondary" });
+  input.addEventListener("input", () => { state.textContent = ""; });
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") input.blur(); });
+  input.addEventListener("change", async () => {
+    input.value = input.value.replaceAll(";", ",");  // lists pasted from Outlook
+    if (!input.reportValidity()) {
+      state.textContent = "Not saved";
+      return;
+    }
+    state.textContent = "Saving…";
+    const response = await fetch("/suppliers/emails", {
+      method: "POST", body: new URLSearchParams({ supplier: supplier.name, emails: input.value }) });
+    if (!response.ok) {
+      state.textContent = "Not saved";
+      return;
+    }
+    supplier.emails = input.value = (await response.json()).emails;
+    state.textContent = "Saved";
+    filterSuppliers();
+  });
+  const label = el("label");
+  label.append(el("span", supplier.name, { className: "supplier-name" }), input);
+  supplier.row = el("li", "", { className: "supplier" });
+  supplier.row.append(label, state);
+  return supplier.row;
+}
+
+function filterSuppliers() {
+  const query = $("supplier-search").value.trim().toLowerCase();
+  const region = $("supplier-region").value;
+  const month = $("supplier-month").value;
+  let shown = 0, withEmails = 0;
+  for (const s of suppliers) {
+    // With a month picked, the region is the supplier's region in that month, as in the report folders.
+    const visible = (!month || month in s.months)
+      && (!region || (month ? s.months[month] : s.region) === region)
+      && (!query || s.name.toLowerCase().includes(query) || s.emails.toLowerCase().includes(query));
+    s.row.hidden = !visible;
+    shown += visible;
+    withEmails += visible && Boolean(s.emails);
+  }
+  const count = shown === suppliers.length ? fmt.format(shown) : `${fmt.format(shown)} of ${fmt.format(suppliers.length)}`;
+  $("supplier-count").textContent = `${count} suppliers · ${fmt.format(withEmails)} with emails`;
+}
+
+$("supplier-search").addEventListener("input", filterSuppliers);
+$("supplier-region").addEventListener("change", filterSuppliers);
+$("supplier-month").addEventListener("change", filterSuppliers);
+$("suppliers").addEventListener("toggle", (e) => { if (e.target.open) loadSuppliers(); });
 
 $("prev-month").addEventListener("click", () => shiftMonth(-1));
 $("next-month").addEventListener("click", () => shiftMonth(1));

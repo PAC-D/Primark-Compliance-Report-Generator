@@ -4,9 +4,10 @@ import os
 import shutil
 import tempfile
 from datetime import date
+from io import BytesIO
 from pathlib import Path
 
-from flask import Flask, abort, jsonify, render_template, request, send_from_directory
+from flask import Flask, abort, jsonify, render_template, request, send_file, send_from_directory
 
 from tps import actions, config
 from tps.common import safe_filename
@@ -133,6 +134,21 @@ def create_app(runner: JobRunner | None = None) -> Flask:
             shutil.rmtree(folder, ignore_errors=True)
             return jsonify(error="Choose an Excel file (.xlsx)."), 400
         return start("Import Supplier Emails", actions.import_emails, paths[0], upload_folder=folder)
+
+    @app.get("/suppliers")
+    def suppliers():
+        return jsonify(actions.supplier_list())
+
+    @app.post("/suppliers/emails")
+    def save_supplier_emails():
+        return jsonify(emails=actions.save_supplier_emails(request.form["supplier"], request.form.get("emails", "")))
+
+    @app.get("/suppliers/export")
+    def export_supplier_emails():
+        buffer = BytesIO()
+        actions.supplier_emails_workbook().save(buffer)
+        buffer.seek(0)
+        return send_file(buffer, as_attachment=True, download_name=f"Supplier_Emails_{date.today():%Y-%m-%d}.xlsx")
 
     @app.post("/jobs/clear")
     def clear():

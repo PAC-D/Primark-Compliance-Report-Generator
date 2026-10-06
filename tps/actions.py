@@ -11,15 +11,17 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
+from openpyxl import Workbook
+
 from tps import config
-from tps.common import get_report_month, report_region, safe_filename
-from tps.db import clear_all_tables
+from tps.common import get_report_month, report_region, safe_filename, split_emails
+from tps.db import clear_raw_data, set_supplier_emails
 from tps.extract import extract_by_supplier
 from tps.ingest import copy_to_data, import_supplier_emails, is_file_processed, process_file
-from tps.metrics.summary import get_latest_data_month, get_summary_sources
-from tps.metrics.supplier import get_supplier_kpis, get_suppliers_for_month
+from tps.metrics.summary import get_latest_data_month, get_summary_sources, get_supplier_emails_map
+from tps.metrics.supplier import get_supplier_countries_by_month, get_supplier_kpis, get_suppliers_for_month
 from tps.reports.kpi_report import render_kpi_report
-from tps.reports.pdf import close_browser, html_to_pdf, html_to_pdf_mixed
+from tps.reports.pdf import close_browser, html_to_pdf
 from tps.reports.summary_excel import render_summary_excel
 from tps.reports.supplier_report import render_report
 
@@ -108,11 +110,11 @@ def load_transaction_files(paths, reprocess: bool = False, copy: bool = True,
 
 
 def clear_database(reload: bool = False, progress=_no_progress) -> Result:
-    """Delete every row from raw_data and supplier_emails; optionally reload data/."""
-    clear_all_tables()
-    logger.info("Database cleared: all rows removed from raw_data and supplier_emails")
+    """Delete every row from raw_data (supplier emails are kept); optionally reload data/."""
+    clear_raw_data()
+    logger.info("Database cleared: all rows removed from raw_data")
     if not reload:
-        return Result("Database cleared (tables kept)")
+        return Result("Database cleared (supplier emails kept)")
 
     files = sorted(config.DATA_DIR.glob("*.xlsx")) + sorted(config.DATA_DIR.glob("*.xls"))
     loaded = load_transaction_files(files, reprocess=True, copy=False, progress=progress)
@@ -126,10 +128,10 @@ def _supplier_pdf(supplier: str, report_month: date, folder: Path) -> Path:
     region_folder.mkdir(parents=True, exist_ok=True)
     output_path = region_folder / f"{safe_filename(supplier)}_{report_month:%B_%Y}.pdf"
 
-    portrait_html, landscape_html = render_report(supplier, report_month)
+    html = render_report(supplier, report_month)
     # Drop the old copy first so a failed run never leaves a stale report behind.
     output_path.unlink(missing_ok=True)
-    html_to_pdf_mixed(portrait_html, landscape_html, str(output_path))
+    html_to_pdf(html, str(output_path), header_footer=True)
     return output_path
 
 
@@ -204,7 +206,7 @@ def generate_kpi_report(report_month: date, progress=_no_progress) -> Result:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.unlink(missing_ok=True)
     try:
-        html_to_pdf(html, str(path))
+        html_to_pdf(html, str(path), header_footer=True)
     finally:
         # Playwright's sync API is bound to the thread that started it.
         close_browser()
@@ -220,8 +222,50 @@ def extract_supplier_data(report_month: date, progress=_no_progress) -> Result:
 
 def import_emails(path, progress=_no_progress) -> Result:
     count = import_supplier_emails(path)
-    logger.info(f"Imported {count} supplier emails")
-    return Result(f"Imported {count} supplier emails")
+    logger.info(f"Imported emails for {count} suppliers")
+    return Result(f"Updated emails for {count} suppliers")
+
+
+def supplier_list() -> list[dict]:
+    """Every supplier with transaction data or stored emails, by name: its emails,
+    and its region overall and in each month with data ('YYYY-MM' -> region).
+    Emails are matched case-insensitively; email-only suppliers have no region."""
+    emails = get_supplier_emails_map()
+    by_supplier: dict[str, dict[str | None, list[str]]] = {}
+    for supplier, month, countries in get_supplier_countries_by_month():
+        by_supplier.setdefault(supplier, {})[month] = countries
+
+    suppliers = [{
+        "name": name,
+        "emails": emails.get(name.strip().lower(), ""),
+        "region": report_region(c for countries in months.values() for c in countries),
+        "months": {m: report_region(countries) for m, countries in sorted(months.items()) if m},
+    } for name, months in by_supplier.items()]
+    known = {name.strip().lower() for name in by_supplier}
+    suppliers += [{"name": name, "emails": value, "region": None, "months": {}}
+                  for name, value in emails.items() if name not in known]
+    return sorted(suppliers, key=lambda s: s["name"].lower())
+
+
+def save_supplier_emails(supplier: str, emails: str) -> str:
+    """Replace one supplier's emails; blank removes them. Returns the stored list."""
+    addresses = split_emails(emails)
+    set_supplier_emails({supplier: addresses})
+    logger.info(f"Saved {len(addresses)} email(s) for {supplier}")
+    return ", ".join(addresses)
+
+
+def supplier_emails_workbook() -> Workbook:
+    """Every supplier and its emails, in the layout import_supplier_emails reads."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Supplier Emails"
+    ws.append(["Supplier Name", "Email"])
+    for supplier in supplier_list():
+        ws.append([supplier["name"], supplier["emails"]])
+    ws.column_dimensions["A"].width = 60
+    ws.column_dimensions["B"].width = 80
+    return wb
 
 
 def tail_log(lines: int = 50) -> list[str]:

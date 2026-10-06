@@ -48,6 +48,13 @@ def normalise_supplier(raw_name: str) -> str:
     return SUPPLIER_NORMALISATION.get(stripped, stripped)
 
 
+def split_emails(value) -> list[str]:
+    """Addresses in a cell or field, split by ',' or ';', blanks dropped, order kept."""
+    if value is None:
+        return []
+    return list(dict.fromkeys(e.strip() for e in str(value).replace(";", ",").split(",") if e.strip()))
+
+
 ILLEGAL_FILENAME_CHARS = '<>:"/\\|?*'
 
 

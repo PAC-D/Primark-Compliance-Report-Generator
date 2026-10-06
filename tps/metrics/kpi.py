@@ -28,6 +28,15 @@ def working_days_in_month(year: int, month: int, excluded_weekdays: tuple[int, .
     )
 
 
+REGION_WEEKENDS = {"bd": (calendar.FRIDAY, calendar.SATURDAY), "cn": (calendar.SATURDAY, calendar.SUNDAY)}
+
+
+def region_working_days(report_month: date) -> dict[str, int]:
+    """Working days in the month per region: BD works Sunday-Thursday, CN Monday-Friday."""
+    return {region: working_days_in_month(report_month.year, report_month.month, weekend)
+            for region, weekend in REGION_WEEKENDS.items()}
+
+
 def get_kpi_chart_months(report_month: date) -> list[date]:
     """Up to 12 months ending at report_month, none before the oldest data;
     just report_month when there is nothing to show."""
@@ -131,8 +140,8 @@ def get_kpi_avg_lines_per_day(report_month: date) -> dict:
         bd_countries = sorted(BD_REGION_COUNTRIES)
         bd_lines = _count_lines(session, report_month, end, bd_countries, exclude=False)
         cn_lines = _count_lines(session, report_month, end, bd_countries, exclude=True)
-        bd_days = working_days_in_month(report_month.year, report_month.month, (calendar.FRIDAY, calendar.SATURDAY))
-        cn_days = working_days_in_month(report_month.year, report_month.month, (calendar.SATURDAY, calendar.SUNDAY))
+        days = region_working_days(report_month)
+        bd_days, cn_days = days["bd"], days["cn"]
         return {
             "bd": {
                 "region": "BD",
@@ -152,22 +161,33 @@ def get_kpi_avg_lines_per_day(report_month: date) -> dict:
 
 
 def get_kpi_supplier_factory_trend(report_month: date) -> dict:
+    """Distinct suppliers and factories per chart month, in total and per region ("bd", "cn").
+    A supplier with lines in both regions counts once in the total and once in each region."""
     session = get_session()
     try:
-        months = get_kpi_chart_months(report_month)
-        labels, suppliers, factories = [], [], []
-        for m in months:
-            end = next_month_start(m)
-            row = session.execute(text("""
-                SELECT COUNT(DISTINCT supplier) AS suppliers,
-                       COUNT(DISTINCT factory) AS factories
+        trend = {"labels": [], "suppliers": [], "factories": [],
+                 "bd": {"suppliers": [], "factories": []}, "cn": {"suppliers": [], "factories": []}}
+        for m in get_kpi_chart_months(report_month):
+            rows = session.execute(text("""
+                SELECT DISTINCT origin_country AS country, supplier, factory
                 FROM raw_data
                 WHERE handover_date >= :start AND handover_date < :end
-            """), {"start": m, "end": end}).fetchone()
-            labels.append(month_label(m))
-            suppliers.append(int(row.suppliers) if row is not None and row.suppliers else 0)
-            factories.append(int(row.factories) if row is not None and row.factories else 0)
-        return {"labels": labels, "suppliers": suppliers, "factories": factories}
+            """), {"start": m, "end": next_month_start(m)}).fetchall()
+            seen = {"bd": (set(), set()), "cn": (set(), set())}
+            for r in rows:
+                suppliers, factories = seen[classify_region(r.country).lower()]
+                # COUNT(DISTINCT ...) skips NULLs; so do these sets.
+                if r.supplier is not None:
+                    suppliers.add(r.supplier)
+                if r.factory is not None:
+                    factories.add(r.factory)
+            trend["labels"].append(month_label(m))
+            trend["suppliers"].append(len(seen["bd"][0] | seen["cn"][0]))
+            trend["factories"].append(len(seen["bd"][1] | seen["cn"][1]))
+            for region, (suppliers, factories) in seen.items():
+                trend[region]["suppliers"].append(len(suppliers))
+                trend[region]["factories"].append(len(factories))
+        return trend
     finally:
         session.close()
 

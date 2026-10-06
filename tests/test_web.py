@@ -5,6 +5,7 @@ from unittest.mock import patch
 import pytest
 
 from tps import actions
+from tps.ingest import import_supplier_emails
 from tps.web.app import create_app
 from tps.web.jobs import Job, JobRunner
 
@@ -135,3 +136,33 @@ def test_output_cannot_escape_the_output_folder(client):
 def test_logs(client):
     with patch("tps.actions.tail_log", return_value=["a", "b"]):
         assert client.get("/logs").get_json() == {"lines": ["a", "b"]}
+
+
+SUPPLIERS = [{"name": "ACME", "emails": "a@x.com, b@x.com", "region": "BD_Region", "months": {"2026-08": "BD_Region"}},
+             {"name": "Bolt", "emails": "", "region": "CN_Region", "months": {}}]
+
+
+def test_suppliers_list(client):
+    with patch("tps.actions.supplier_list", return_value=SUPPLIERS):
+        assert client.get("/suppliers").get_json() == SUPPLIERS
+
+
+def test_save_supplier_emails(client):
+    with patch("tps.actions.save_supplier_emails", return_value="a@x.com") as save:
+        response = client.post("/suppliers/emails", data={"supplier": "ACME", "emails": "a@x.com,"})
+    assert response.get_json() == {"emails": "a@x.com"}
+    save.assert_called_once_with("ACME", "a@x.com,")
+
+
+def test_exported_emails_import_back_unchanged(client, tmp_path):
+    with patch("tps.actions.supplier_list", return_value=SUPPLIERS):
+        response = client.get("/suppliers/export")
+    assert response.headers["Content-Disposition"].startswith("attachment")
+    path = tmp_path / "export.xlsx"
+    path.write_bytes(response.data)
+
+    stored = []
+    with patch("tps.ingest.init_supplier_emails_table"), \
+         patch("tps.ingest.set_supplier_emails", side_effect=stored.append):
+        assert import_supplier_emails(path) == 1
+    assert stored == [{"acme": ["a@x.com", "b@x.com"]}]

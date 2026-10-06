@@ -22,8 +22,8 @@ def metrics():
         get_monthly_compliance_scores=lambda *a: ([80.0] * 12, ["Jan"] * 12),
         get_standard_carton_scores=lambda *a: ([70.0] * 12, ["Jan"] * 12),
         get_density_scores=lambda *a: ([250.0] * 12, ["Jan"] * 12),
-        get_associated_factories=lambda *a: [{"factory": "Factory A", "origin_countries": "China",
-                                              "compliance_rate": 80.0}],
+        get_associated_factories=lambda *a: [{"factory": "Factory A", "origin_countries": "China", "compliance_rate": 80.0},
+                                             {"factory": "Factory B", "origin_countries": "China", "compliance_rate": 10.0}],
         get_line_details=lambda *a: ([], EMPTY_TOTALS),
         get_compliance_data=lambda *a: [{"factory": "Factory A", "standard_carton_pct": 80.0,
                                          "total_carton_qty": 1000, "corrugated_sqm": 50.0}],
@@ -32,15 +32,30 @@ def metrics():
         yield
 
 
-def test_renders_portrait_and_landscape(metrics):
-    portrait_html, landscape_html = supplier_report.render_report("Test Supplier", date(2024, 1, 1))
+def test_renders_one_document(metrics):
+    html = supplier_report.render_report("Test Supplier", date(2024, 1, 1))
 
-    assert "PRIMARK" in portrait_html
-    assert "Test Supplier" in portrait_html
-    assert "January" in portrait_html
-    assert "CORRUGATED" in portrait_html.upper()
-    assert supplier_report.LANDSCAPE_MARKER not in portrait_html
-    assert landscape_html.startswith("<!DOCTYPE html>")
+    assert html.startswith("<!DOCTYPE html>")
+    assert "Test Supplier" in html
+    assert "January 2024" in html
+    for section in ("Associated Factories", "Line Details", "Standard Carton Usage", "Transaction Details"):
+        assert section in html
+    assert 'class="shared"' not in html
+
+
+def test_factory_band_counts(metrics):
+    html = supplier_report.render_report("Test Supplier", date(2024, 1, 1))
+    assert '<i class="tone-high" style="flex:1">' in html
+    assert '<i class="tone-low" style="flex:1">' in html
+    assert 'class="tone-mid" style="flex' not in html
+
+
+def test_shared_ranks_are_badged(metrics):
+    with patch("tps.reports.supplier_report.get_global_ranking", return_value=(1, 10, True)), \
+         patch("tps.reports.supplier_report.get_local_rankings",
+               return_value=[{"country": "China", "rank": 1, "total": 10, "shared": True}]):
+        html = supplier_report.render_report("Test Supplier", date(2024, 1, 1))
+    assert html.count('class="shared"') == 2
 
 
 def test_defaults_to_report_month(metrics):
@@ -49,11 +64,6 @@ def test_defaults_to_report_month(metrics):
     default.assert_called_once()
 
 
-@pytest.mark.parametrize("rate, colour", [(85, "#059669"), (50, "#f59e0b"), (10, "#e31837")])
-def test_gauge_colour_bands(rate, colour):
-    assert supplier_report._make_gauge_arc(rate)["color"] == colour
-
-
-def test_gauge_clamps_rate():
-    assert supplier_report._make_gauge_arc(140)["rate"] == 100
-    assert supplier_report._make_gauge_arc(-5)["dasharray"] == "0.0 283"
+@pytest.mark.parametrize("rate, band", [(100, "high"), (70, "high"), (69.99, "mid"), (40, "mid"), (39.9, "low"), (0, "low")])
+def test_rate_bands(rate, band):
+    assert supplier_report.rate_band(rate) == band

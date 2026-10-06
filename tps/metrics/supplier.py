@@ -452,3 +452,19 @@ def get_suppliers_for_month(report_month: date) -> list[str]:
         return [row[0] for row in result]
     finally:
         session.close()
+
+
+def get_supplier_countries_by_month() -> list[tuple[str, str | None, list[str]]]:
+    """(supplier, 'YYYY-MM' or None, origin countries) for every supplier and
+    handover month in raw_data."""
+    session = get_session()
+    try:
+        rows = session.execute(text("""
+            SELECT supplier, to_char(handover_date, 'YYYY-MM') AS month,
+                   array_agg(DISTINCT origin_country) FILTER (WHERE origin_country IS NOT NULL) AS countries
+            FROM raw_data WHERE supplier IS NOT NULL
+            GROUP BY 1, 2
+        """)).fetchall()
+        return [(row.supplier, row.month, row.countries or []) for row in rows]
+    finally:
+        session.close()

@@ -88,26 +88,23 @@ def init_supplier_emails_table() -> None:
         conn.commit()
 
 
-def clear_supplier_emails() -> None:
-    """Clears all rows from the supplier_emails table."""
-    with engine.connect() as conn:
-        conn.execute(text("DELETE FROM supplier_emails"))
-        conn.commit()
-
-
-def clear_all_tables() -> None:
-    """Clears all rows from all data tables."""
+def clear_raw_data() -> None:
+    """Clears every transaction row. Supplier emails are kept: they are edited by hand."""
     with engine.connect() as conn:
         conn.execute(text("DELETE FROM raw_data"))
-        conn.execute(text("DELETE FROM supplier_emails"))
         conn.commit()
 
 
-def insert_supplier_email(supplier_name: str, email: str) -> None:
-    """Inserts a single supplier/email pair. Supplier name is lowercased."""
-    with engine.connect() as conn:
-        conn.execute(
-            text("INSERT INTO supplier_emails (supplier_name, email) VALUES (:supplier, :email) ON CONFLICT DO NOTHING"),
-            {"supplier": supplier_name.strip().lower(), "email": email.strip()}
-        )
-        conn.commit()
+def set_supplier_emails(emails_by_supplier: dict[str, list[str]]) -> None:
+    """Replace the stored emails of each given supplier, in one transaction; an
+    empty list removes them. Other suppliers are untouched. Names are stored lowercased."""
+    with engine.begin() as conn:
+        for supplier, emails in emails_by_supplier.items():
+            supplier = supplier.strip().lower()
+            conn.execute(text("DELETE FROM supplier_emails WHERE supplier_name = :supplier"),
+                         {"supplier": supplier})
+            if emails:
+                conn.execute(
+                    text("INSERT INTO supplier_emails (supplier_name, email) VALUES (:supplier, :email) "
+                         "ON CONFLICT DO NOTHING"),
+                    [{"supplier": supplier, "email": email} for email in emails])

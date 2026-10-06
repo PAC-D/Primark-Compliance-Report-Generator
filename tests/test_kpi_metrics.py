@@ -34,6 +34,9 @@ class TestHelpers:
     def test_working_days_cn_excludes_sat_sun(self):
         assert kpi_metrics.working_days_in_month(2026, 3, (calendar.SATURDAY, calendar.SUNDAY)) == 22
 
+    def test_region_working_days(self):
+        assert kpi_metrics.region_working_days(date(2026, 3, 1)) == {"bd": 23, "cn": 22}
+
     def test_chart_months_no_data_falls_back(self):
         with patch("tps.metrics.kpi.get_session") as mock_session:
             mock_session.return_value.execute.return_value.fetchone.return_value = None
@@ -157,29 +160,39 @@ class TestAvgLinesPerDay:
 
 
 class TestSupplierFactoryTrend:
-    def test_returns_counts_per_month(self):
+    @staticmethod
+    def fake_row(country, supplier, factory):
+        row = MagicMock()
+        row.country, row.supplier, row.factory = country, supplier, factory
+        return row
+
+    def test_counts_per_month_in_total_and_per_region(self):
         with patch("tps.metrics.kpi.get_session") as mock_session, \
              patch("tps.metrics.kpi.get_kpi_chart_months") as mock_range:
             mock_range.return_value = [date(2026, 5, 1), date(2026, 6, 1)]
-            inst = mock_session.return_value
-            def fake_row(s, f):
-                row = MagicMock()
-                row.suppliers, row.factories = s, f
-                return row
-            inst.execute.return_value.fetchone.side_effect = [fake_row(10, 15), fake_row(12, 18)]
+            r = self.fake_row
+            mock_session.return_value.execute.return_value.fetchall.side_effect = [
+                # S1 has lines in both regions: once in the total, once in each region.
+                [r("Bangladesh", "S1", "F1"), r("India", "S1", "F2"), r("China", "S1", "F3"), r("China", "S2", "F4")],
+                [r("Pakistan", "S3", "F5"), r("Turkey", None, None)],
+            ]
             result = kpi_metrics.get_kpi_supplier_factory_trend(date(2026, 6, 1))
-            assert result["labels"] == ["May '26", "Jun '26"]
-            assert result["suppliers"] == [10, 12]
-            assert result["factories"] == [15, 18]
+        assert result["labels"] == ["May '26", "Jun '26"]
+        assert result["suppliers"] == [2, 1]
+        assert result["factories"] == [4, 1]
+        assert result["bd"] == {"suppliers": [1, 1], "factories": [2, 1]}
+        assert result["cn"] == {"suppliers": [2, 0], "factories": [2, 0]}
 
     def test_no_data_returns_zeros(self):
         with patch("tps.metrics.kpi.get_session") as mock_session, \
              patch("tps.metrics.kpi.get_kpi_chart_months") as mock_range:
             mock_range.return_value = [date(2026, 6, 1)]
-            mock_session.return_value.execute.return_value.fetchone.return_value = None
+            mock_session.return_value.execute.return_value.fetchall.return_value = []
             result = kpi_metrics.get_kpi_supplier_factory_trend(date(2026, 6, 1))
-            assert result["suppliers"] == [0]
-            assert result["factories"] == [0]
+        assert result["suppliers"] == [0]
+        assert result["factories"] == [0]
+        assert result["bd"] == {"suppliers": [0], "factories": [0]}
+        assert result["cn"] == {"suppliers": [0], "factories": [0]}
 
 
 class TestRegionReflectedLines:
