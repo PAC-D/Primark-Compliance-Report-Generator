@@ -10,7 +10,7 @@ KPI report, all from a local web app.
 - [Overview](#overview)
 - [Repository Structure](#repository-structure)
 - [Tech Stack](#tech-stack)
-- [Setup](#setup)
+- [Getting Started](#getting-started)
 - [Usage](#usage)
 - [Testing](#testing)
 - [Data & Confidentiality](#data--confidentiality)
@@ -94,33 +94,91 @@ output/
 | Web UI        | Flask, vanilla HTML/CSS/JS (no build)   |
 | Tests         | pytest                                  |
 
-## Setup
+## Getting Started
 
-Requires Python 3.11+ and a reachable PostgreSQL server. Run everything from
-the repository root.
+### Requirements
+
+- Python 3.11 or newer (developed with 3.14)
+- A reachable PostgreSQL server (a local install is fine)
+- Windows, macOS or Linux
+
+Run everything from the repository root. The steps below install the Python
+dependencies and the Playwright Chromium browser used to render the PDFs.
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/PAC-D/Primark-Compliance-Report-Generator.git
+cd Primark-Compliance-Report-Generator
+```
+
+### 2. Create a virtual environment and install the dependencies
 
 ```bash
 python -m venv .venv
-# Windows: .venv\Scripts\activate     macOS/Linux: source .venv/bin/activate
-pip install -r requirements.txt
-playwright install chromium
-cp config.yaml.example config.yaml   # then set your Postgres host/user/password
 ```
 
-Create the database and schema. On Linux/macOS with a local `postgres`
-superuser, this does both (it overwrites `config.yaml` with default
-`postgres`/`postgres` credentials):
+Activate it — Windows:
+
+```powershell
+.venv\Scripts\activate
+```
+
+macOS/Linux:
+
+```bash
+source .venv/bin/activate
+```
+
+Then install the dependencies and the headless browser:
+
+```bash
+pip install -r requirements.txt
+playwright install chromium
+```
+
+### 3. Create the config file
+
+```bash
+# Windows
+copy config.yaml.example config.yaml
+
+# macOS/Linux
+cp config.yaml.example config.yaml
+```
+
+Open `config.yaml` and set your PostgreSQL host, port, database name, user
+and password.
+
+### 4. Create the database and schema
+
+On Linux/macOS with a local `postgres` superuser, this does both (it
+overwrites `config.yaml` with default `postgres`/`postgres` credentials):
 
 ```bash
 python -m tps.setup_db
 ```
 
-Otherwise create a `tps_compliance` database by hand, point `config.yaml` at
-it, and initialise the schema:
+On Windows, or against an existing PostgreSQL server, create a
+`tps_compliance` database by hand — for example with `psql`:
+
+```powershell
+psql -U postgres -c "CREATE DATABASE tps_compliance;"
+```
+
+Then point `config.yaml` at it and initialise the schema:
 
 ```bash
 python -c "from tps.db import init_db; init_db()"
 ```
+
+### 5. Start the app
+
+```bash
+python -m tps
+```
+
+The [Usage](#usage) section below covers what each screen does.
 
 ## Usage
 
