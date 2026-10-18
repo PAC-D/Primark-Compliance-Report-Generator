@@ -14,7 +14,6 @@ KPI report, all from a local web app.
 - [Usage](#usage)
 - [Testing](#testing)
 - [Data & Confidentiality](#data--confidentiality)
-- [Project Docs](#project-docs)
 - [License](#license)
 
 ## Overview
@@ -61,7 +60,6 @@ PostgreSQL database.
 │   ├── templates/              # Jinja2 report templates
 │   └── assets/                 # Logos, signature; vendor/ = Chart.js, Inter font
 ├── tests/                      # pytest suite
-├── docs/superpowers/           # Design specs and implementation plans
 ├── config.yaml.example         # Copy to config.yaml and fill in DB credentials
 ├── requirements.txt
 └── pytest.ini
@@ -238,11 +236,6 @@ real supplier data and is not in git; they skip when it is absent.
 This tool works on real Primark supplier and packaging-compliance data.
 `.gitignore` keeps all of it out of version control: `data/`, `output/`,
 `logs/`, `config.yaml` (database credentials) and `tests/fixtures/`.
-
-## Project Docs
-
-`docs/superpowers/specs/` and `docs/superpowers/plans/` hold the design specs
-and implementation plans behind each major feature.
 
 ## License
 

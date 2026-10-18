@@ -1,6 +1,7 @@
 .venv-win/
 .venv/
 .superpowers/
+/docs/superpowers/
 .vscode/
 .pytest_cache/
 .docs/
