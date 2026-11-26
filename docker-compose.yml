@@ -1,0 +1,22 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    env_file: .env
+    environment:
+      OUTPUT_DIR: /app/output
+    ports:
+      - "127.0.0.1:8602:8000"
+    volumes:
+      - tps-output:/app/output
+    mem_limit: 2g
+    restart: unless-stopped
+  web:
+    build: web
+    ports:
+      - "127.0.0.1:8601:3000"
+    restart: unless-stopped
+
+volumes:
+  tps-output:

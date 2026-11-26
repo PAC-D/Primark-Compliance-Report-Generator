@@ -238,3 +238,48 @@ def test_yearly_content_matches_reference(reference_wb, generated_wb):
             assert str(actual[-1]).startswith("=IFERROR(AVERAGE(") and str(expected[-1]).startswith("=IFERROR(AVERAGE(")
             expected, actual = expected[:-1], actual[:-1]
         assert actual == expected, f"row {row}"
+
+
+# --- Shared contexts ------------------------------------------------------------
+
+from datetime import date  # noqa: E402
+from unittest.mock import patch  # noqa: E402
+
+from tps.reports import summary_excel  # noqa: E402
+
+TOP = SAMPLE["top_suppliers"]
+
+
+def _patched(empty=False):
+    s = {} if empty else SAMPLE
+    return patch.multiple(
+        "tps.reports.summary_excel",
+        get_summary_sources=lambda m: {"total_suppliers": 0, "total_factories": 0} if empty else s["sources"],
+        get_summary_country_compliance=lambda m: [] if empty else s["compliance_data"],
+        get_summary_country_monthly_trend=lambda m: ({}, [], []) if empty else (
+            s["country_data"], s["chart_labels"], s["country_order"]),
+        get_summary_line_details=lambda m: ([], SAMPLE["line_totals"]) if empty else (
+            s["line_details"], s["line_totals"]),
+        get_top_suppliers=lambda m: [] if empty else TOP,
+        get_suppliers_below_threshold=lambda m: [] if empty else s["suppliers_below"],
+        get_all_suppliers_trend=lambda m: ([], []) if empty else (s["all_supplier_trend"], s["month_labels"]),
+        get_supplier_emails_map=lambda: {} if empty else s["email_map"],
+        region_working_days=lambda m: {"cn": 21, "bd": 20},
+    )
+
+
+def test_summary_context_feeds_the_workbook():
+    m = date(2026, 9, 1)
+    with _patched():
+        ctx = summary_excel.summary_context(m)
+        assert ctx["top_suppliers"] is TOP
+        assert (ctx["working_days"], ctx["days_in_month"], ctx["month_name"], ctx["year"]) == (21, 30, "September", 2026)
+        assert summary_excel.render_summary_excel(m).sheetnames == SHEETS
+
+
+def test_contexts_empty_month():
+    import json
+    from tps.common import json_safe
+    m = date(2026, 9, 1)
+    with _patched(empty=True):
+        json.dumps(json_safe(summary_excel.summary_context(m)))

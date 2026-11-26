@@ -1,241 +1,225 @@
 # Primark Compliance Report Generator
 
-Automated tooling for PAC-D's monthly Primark packaging-management compliance
-reporting: ingest bi-weekly transaction exports, load them into a database,
-and generate per-supplier compliance PDFs, an Excel summary workbook and a
-KPI report, all from a local web app.
+PAC-D's monthly Primark packaging-management compliance reporting: ingest
+bi-weekly transaction exports into PostgreSQL, explore the month in a web
+dashboard, and generate per-supplier compliance PDFs, an Excel summary
+workbook, a KPI report and raw-data extracts.
 
 ## Contents
 
 - [Overview](#overview)
 - [Repository Structure](#repository-structure)
 - [Tech Stack](#tech-stack)
-- [Getting Started](#getting-started)
+- [Run locally](#run-locally)
+- [Server setup (one time)](#server-setup-one-time)
+- [Releasing](#releasing)
 - [Usage](#usage)
 - [Testing](#testing)
 - [Data & Confidentiality](#data--confidentiality)
-- [License](#license)
 
 ## Overview
 
-Primark's packaging-management team exports raw transaction data as
-bi-weekly Excel files (one per half-month, per region). This project turns
-those exports into the reporting suppliers and account managers need:
+Two containers behind the host's nginx:
 
-- a PDF compliance report per supplier, per month: a dashboard page, factory
-  tables, notes, then the month's transactions on landscape pages
-- an Excel workbook summarizing every supplier for the month
-- a KPI report with regional and trend charts across all suppliers
-- extracts that re-slice the raw data by month or by supplier, for requests
-  outside the normal pipeline
+- `web`: the Next.js dashboard (six tabs: Dashboard, Supplier Compliance, KPI,
+  Reports, Data and Suppliers), served under `/compliance`.
+- `api`: FastAPI over the `tps` Python package (metrics, report rendering with
+  headless Chromium, ingest). Long jobs run one at a time in the background.
 
-Everything runs from a small web app on your own PC, backed by a local
-PostgreSQL database.
+nginx puts HTTP basic auth in front of both and routes `/compliance/api/` to
+the API and `/compliance/` to the page.
 
 ## Repository Structure
 
 ```
 .
-├── tps/                        # The application package
-│   ├── __main__.py             # `python -m tps` starts the web app
-│   ├── actions.py              # The app's operations (UI-free; run as background jobs)
-│   ├── web/                    # Flask app: routes, job runner, page, CSS/JS
-│   ├── config.py               # Reads config.yaml; paths; logging setup
-│   ├── common.py               # Supplier-name normalisation, regions, month helpers, safe filenames
-│   ├── db.py                   # PostgreSQL engine, schema, table maintenance
-│   ├── ingest.py               # Transaction-file ETL and supplier-email import
-│   ├── extract.py              # Monthly / per-supplier raw-data extracts (no DB)
-│   ├── setup_db.py             # One-shot DB creation (Linux/macOS)
-│   ├── metrics/
-│   │   ├── supplier.py         # Per-supplier report metrics
-│   │   ├── summary.py          # All-supplier summary workbook metrics
-│   │   └── kpi.py              # KPI report metrics
-│   ├── reports/
-│   │   ├── supplier_report.py  # Per-supplier report HTML
-│   │   ├── summary_excel.py    # Summary workbook (openpyxl)
-│   │   ├── kpi_report.py       # KPI report HTML
-│   │   ├── html.py             # Jinja environment + embedded logos, fonts, Chart.js
-│   │   ├── pdf.py              # Playwright HTML -> PDF, print header/footer
-│   │   └── build_assets.py     # Re-fetches assets/vendor/ (Chart.js, Inter font)
-│   ├── templates/              # Jinja2 report templates
-│   └── assets/                 # Logos, signature; vendor/ = Chart.js, Inter font
-├── tests/                      # pytest suite
-├── config.yaml.example         # Copy to config.yaml and fill in DB credentials
-├── requirements.txt
-└── pytest.ini
+├── api/                  # FastAPI app (main.py, routes.py) and its Dockerfile
+├── web/                  # Next.js app (standalone build) and its Dockerfile
+├── tps/                  # Python package: db, ingest, metrics, reports, jobs, actions, extract
+├── deploy/               # nginx-compliance.conf, release.sh
+├── tests/                # pytest suite (web/ has its own vitest suite)
+├── docker-compose.yml    # api on 127.0.0.1:8602, web on 127.0.0.1:8601
+├── .env.example          # Server settings; copy to .env
+├── config.yaml.example   # Local-only database settings (no Docker)
+└── requirements.txt
 ```
 
-Created locally at runtime (gitignored): `config.yaml`, `data/` (raw source
-files), `output/` (all generated reports and extracts), `logs/`.
-
-`output/` has one folder per reporting month:
+`output/` (a Docker volume on the server) has one folder per reporting month:
 
 ```
-output/
-  2026_August/
-    Supplier_Reports/BD_Region/*.pdf, CN_Region/*.pdf
-    Supplier_Data/BD_Region/*.xlsx, CN_Region/*.xlsx, All_Suppliers_Aug_2026.xlsx
-    Summary_Report_August_2026.xlsx
-    KPI_Report_August_2026.pdf
+2026_August/
+  Supplier_Reports/BD_Region/*.pdf, CN_Region/*.pdf
+  Supplier_Data/BD_Region/*.xlsx, CN_Region/*.xlsx, All_Suppliers_Aug_2026.xlsx
+  Summary_Report_August_2026.xlsx
+  KPI_Report_August_2026.pdf
 ```
 
 ## Tech Stack
 
-| Layer         | Technology                              |
-|---------------|-----------------------------------------|
-| Language      | Python 3.11+ (developed with 3.14)      |
-| ETL           | pandas, openpyxl                        |
-| Database      | PostgreSQL via SQLAlchemy               |
-| Templating    | Jinja2 → HTML with inline SVG charts    |
-| PDF rendering | Playwright (headless Chromium)          |
-| Config        | YAML                                    |
-| Web UI        | Flask, vanilla HTML/CSS/JS (no build)   |
-| Tests         | pytest                                  |
+| Layer         | Technology                                   |
+|---------------|----------------------------------------------|
+| Dashboard     | Next.js 16, React 19, Tailwind 4             |
+| API           | FastAPI, uvicorn                             |
+| ETL / metrics | pandas, openpyxl                             |
+| Database      | PostgreSQL via SQLAlchemy                    |
+| PDF rendering | Jinja2 + Playwright (headless Chromium)      |
+| Deploy        | Docker Compose, host nginx + certbot         |
+| Tests         | pytest, vitest                               |
 
-## Getting Started
+## Run locally
 
-### Requirements
-
-- Python 3.11 or newer (developed with 3.14)
-- A reachable PostgreSQL server (a local install is fine)
-- Windows, macOS or Linux
-
-Run everything from the repository root. The steps below install the Python
-dependencies and the Playwright Chromium browser used to render the PDFs.
-
-### 1. Clone the repository
-
-```bash
-git clone https://github.com/PAC-D/Primark-Compliance-Report-Generator.git
-cd Primark-Compliance-Report-Generator
-```
-
-### 2. Create a virtual environment and install the dependencies
-
-```bash
-python -m venv .venv
-```
-
-Activate it — Windows:
-
-```powershell
-.venv\Scripts\activate
-```
-
-macOS/Linux:
-
-```bash
-source .venv/bin/activate
-```
-
-Then install the dependencies and the headless browser:
+Requirements: Python 3.11+, Node 22+, a PostgreSQL database you can reach.
 
 ```bash
 pip install -r requirements.txt
 playwright install chromium
-```
-
-### 3. Create the config file
-
-```bash
-# Windows
-copy config.yaml.example config.yaml
-
-# macOS/Linux
-cp config.yaml.example config.yaml
-```
-
-Open `config.yaml` and set your PostgreSQL host, port, database name, user
-and password.
-
-### 4. Create the database and schema
-
-On Linux/macOS with a local `postgres` superuser, this does both (it
-overwrites `config.yaml` with default `postgres`/`postgres` credentials):
-
-```bash
-python -m tps.setup_db
-```
-
-On Windows, or against an existing PostgreSQL server, create a
-`tps_compliance` database by hand — for example with `psql`:
-
-```powershell
-psql -U postgres -c "CREATE DATABASE tps_compliance;"
-```
-
-Then point `config.yaml` at it and initialise the schema:
-
-```bash
+cp config.yaml.example config.yaml     # database settings (or set DB_* variables)
 python -c "from tps.db import init_db; init_db()"
+uvicorn api.main:app --port 8000
 ```
 
-### 5. Start the app
+In a second terminal: `npm --prefix web install`, then `npm --prefix web run dev`
+and open <http://localhost:3000/compliance>. In development the page proxies
+`/api` to port 8000; set `ALLOWED_ORIGINS=http://localhost:3000` (the default)
+for uploads and other POSTs.
+
+The Docker setup (`docker compose up --build`) is meant for the server: the
+`web` container only reaches the API through nginx's `/compliance/api/` route,
+so the page does not work from `http://localhost:8601` alone. The API's own
+health check does: <http://localhost:8602/api/health> returns `{"ok":true}`.
+
+## Server setup (one time)
+
+Server: `ubuntu@65.2.228.79`, projects under `/srv/primark-projects/`. Steps
+that touch the server or AWS are run by a person, not by automation.
+
+1. **Database.** On `database-1` (RDS), as the admin user:
+   ```sql
+   CREATE DATABASE tps_compliance;
+   CREATE USER tps_compliance WITH PASSWORD '<strong password>';
+   GRANT ALL PRIVILEGES ON DATABASE tps_compliance TO tps_compliance;
+   \c tps_compliance
+   GRANT ALL ON SCHEMA public TO tps_compliance;
+   ```
+2. **Clone.**
+   ```bash
+   cd /srv/primark-projects
+   git clone https://github.com/PAC-D/Primark-Compliance-Report-Generator.git
+   cd Primark-Compliance-Report-Generator
+   ```
+3. **`.env`.** `cp .env.example .env`, fill in `DB_HOST`
+   (`database-1.ch4qkgwmwuqn.ap-south-1.rds.amazonaws.com`) and `DB_PASSWORD`,
+   keep `DB_SSLMODE=require` and `ALLOWED_ORIGINS=https://primark.pac-d.com`,
+   then `chmod 600 .env`.
+4. **Tables.** From the clone folder, build the image and create the tables:
+   ```bash
+   docker compose build api
+   docker compose run --rm api python -c "from tps.db import init_db; init_db()"
+   ```
+   Only on a fresh database; never re-run it, it drops `raw_data`.
+5. **Login.** `sudo htpasswd -c /etc/nginx/tps-compliance.htpasswd team`
+   (`apache2-utils` provides `htpasswd`).
+6. **nginx.** In the 443 `server` block of `/etc/nginx/sites-enabled/primark`
+   add
+   `include /srv/primark-projects/Primark-Compliance-Report-Generator/deploy/nginx-compliance.conf;`
+   then `sudo nginx -t && sudo systemctl reload nginx`. The
+   `primark.pac-d.com` certificate already exists on the server (certbot); no
+   new certificate is needed.
+7. **First release.** `docker compose up -d --build` on the server (or run the
+   release script from your PC, below).
+8. **Load data.** Open the Data page and upload the January-October 2026
+   transaction files.
+9. **Public address.** <https://primark.pac-d.com/compliance> works once
+   `primark.pac-d.com` is detached from Carton Connect's CloudFront and points
+   at this server.
+
+The API and web ports are bound to `127.0.0.1` only (8602 and 8601, next to
+the existing containers on 8501-8502); nginx is the only way in.
+
+## Testing on the server before the DNS change
+
+Reach the server's nginx through an SSH tunnel and a hosts entry (nginx matches
+`server_name primark.pac-d.com`, and the certificate is valid for that name):
+
+1. Tunnel: `ssh -i <key> -L 8443:127.0.0.1:443 ubuntu@65.2.228.79`
+2. Hosts entry (as admin; `/etc/hosts` or `C:\Windows\System32\drivers\etc\hosts`):
+   `127.0.0.1 primark.pac-d.com`
+3. Browse <https://primark.pac-d.com:8443/compliance/>.
+4. The browser now sends `Origin: https://primark.pac-d.com:8443`, so POSTs are
+   refused until you add it to `ALLOWED_ORIGINS` in the server's `.env`
+   (comma-separated, after the existing value) and run `docker compose up -d`.
+
+After the DNS change, remove that origin from `.env` (and `docker compose up -d`
+again) and delete the hosts entry.
+
+## Releasing
+
+Push the branch to deploy, then from your PC:
 
 ```bash
-python -m tps
+export TPS_SSH_KEY=~/.ssh/<key>.pem      # optional; TPS_SSH defaults to ubuntu@65.2.228.79
+bash deploy/release.sh
 ```
 
-The [Usage](#usage) section below covers what each screen does.
+It pulls (fast-forward only), rebuilds, restarts and checks `/api/health` and
+the web container on the server; it exits non-zero if any step fails.
+
+`docker compose build` runs `next build` on the server, which needs about 1 GB
+of free memory while it builds.
+
+`/app/logs` is inside the container, so the Recent log on the Reports page
+resets on each release.
+
+Memory: with `PDF_WORKERS=2`, an all-supplier August 2026 PDF job peaked at
+1.7 GiB in `docker stats` (api 1.67 GiB, web 55 MiB), under the 2 GB budget. Each PDF thread restarts its Chromium every 10 reports (`RECYCLE_AFTER` in `tps/reports/pdf.py`), because a reused page otherwise grows to about 2.5 GiB over 127 reports.
+
+### Upgrading from a root image
+
+If the `tps-output` volume was created by an image that ran as root, every job
+fails with "Permission denied" after switching to the `pwuser` image. Fix the
+ownership once (keeps the generated reports):
+
+```bash
+docker compose run --rm -u root api chown -R pwuser:pwuser /app/output
+```
+
+`docker volume ls` shows the volume, prefixed with the project folder name
+(for example `primark-compliance-report-generator_tps-output`).
 
 ## Usage
 
-```bash
-python -m tps
-```
-
-This starts the app on <http://127.0.0.1:5000> and opens it in your browser.
-It only listens on this PC. Stop it with Ctrl+C in the terminal.
-
-| Section | Action | What it does |
-|---------|--------|--------------|
-| Month | Supplier Reports | One compliance PDF per supplier with data that month, in `<month>/Supplier_Reports/<BD or CN>_Region/`. About 3 minutes for 127 suppliers. |
-| Month | Summary Workbook | `<month>/Summary_Report_<Month>_<Year>.xlsx`. |
-| Month | KPI Report | `<month>/KPI_Report_<Month>_<Year>.pdf`. |
-| Month | Supplier Data | One workbook per supplier from the raw files in `data/` (no database), in `<month>/Supplier_Data/`. |
-| Month | All Supplier Data | Every file in `data/` for the month combined into one workbook (no database): `<month>/Supplier_Data/All_Suppliers_<Mon>_<Year>.xlsx`. |
-| Data | Load transaction files | Upload bi-weekly exports; loads them into `raw_data` and copies them into `data/`. Files already loaded are skipped unless "re-load" is ticked; re-loading replaces a file's rows, it never duplicates them. |
-| Suppliers | Supplier list | Every supplier with data or stored emails. Edit a supplier's emails in place (comma-separated; saved when you leave the field or press Enter; blank removes them). Search by name or email, filter by region and month; filters stack. With a month picked, region is the supplier's region that month, as in the report folders. |
-| Suppliers | Import | A "Supplier Name / Email" workbook. Replaces the emails of each supplier in it; suppliers not in it, or with a blank email cell, are kept. |
-| Suppliers | Export | Every supplier and its emails, in the same layout Import reads. |
-| Data | Clear database | Delete all rows from `raw_data` (schema and supplier emails kept), optionally reloading `data/`. |
-| — | Recent log | The last 50 lines of `logs/run.log`. |
-
-The page opens on the latest month with data and shows, for each output,
-whether it exists and when it was last generated. Jobs run one at a time with
-a progress bar and a Cancel button; when done, the page offers a download or
-"Show in Folder". Light and dark appearance follow the system setting.
-
-Report PDFs render 4 at a time (`PDF_WORKERS` in `tps/actions.py`), each
-worker with its own headless browser and nothing loaded from the internet.
+| Page | What it does |
+|------|--------------|
+| Dashboard | The month's summary workbook on screen: headline figures, charts and sheets (top performers, follow-up required, visibility), the yearly view, and the all-supplier table with filters and bulk PDF / data downloads. Download the workbook itself from here. |
+| Supplier Compliance | One supplier's PDF on screen, found by searching supplier or factory name; with none chosen, the suppliers needing follow-up. Download its PDF or data. |
+| KPI | Regional and trend KPIs across all suppliers; Download KPI report. |
+| Reports | Run Supplier Reports, Summary Workbook, KPI Report, Supplier Data and All Supplier Data for a month; shows what exists and when it was generated. One job at a time, with progress and Cancel. |
+| Data | Upload bi-weekly exports (files already loaded are skipped unless re-load is ticked; re-loading replaces a file's rows), or clear the database. |
+| Suppliers | Every supplier with its emails: edit in place, import or export a "Supplier Name / Email" workbook. |
 
 Regions: Bangladesh, India, Pakistan, Sri Lanka, Morocco and Turkey are BD;
 every other country is CN; a supplier with countries from both is CN.
 
-### Extracts without the database
-
-```bash
-python -m tps.extract monthly    # <month>/Supplier_Data/All_Suppliers_<Mon>_<Year>.xlsx
-python -m tps.extract supplier   # <month>/Supplier_Data/<BD or CN>_Region/<Supplier>_<Month>_<Year>.xlsx
-```
-
-Both read the bi-weekly files in `data/` directly.
+Settings (environment): `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`,
+`DB_PASSWORD`, `DB_SSLMODE`, `OUTPUT_DIR`, `PDF_WORKERS` (default 2; blank, non-numeric or below 1 also gives 2),
+`ALLOWED_ORIGINS` (comma-separated; POSTs from other origins are refused).
 
 ## Testing
 
 ```bash
-pytest
+pytest -q
+cd web && npx vitest run && npm run build
 ```
 
-The tests never touch the database or `output/`. The summary-workbook content
-tests compare against `tests/fixtures/reference_july_2026.xlsx`, which holds
-real supplier data and is not in git; they skip when it is absent.
+The pytest suite never touches the database or `output/`. The summary-workbook
+content tests compare against `tests/fixtures/reference_july_2026.xlsx`, which
+holds real supplier data and is not in git; they skip when it is absent.
 
 ## Data & Confidentiality
 
 This tool works on real Primark supplier and packaging-compliance data.
 `.gitignore` keeps all of it out of version control: `data/`, `output/`,
-`logs/`, `config.yaml` (database credentials) and `tests/fixtures/`.
+`logs/`, `config.yaml`, `.env` (database credentials) and `tests/fixtures/`.
 
 ## License
 

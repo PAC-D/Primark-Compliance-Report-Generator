@@ -26,10 +26,8 @@ def rate_band(rate: float) -> str:
     return "high" if rate >= 70 else "mid" if rate >= 40 else "low"
 
 
-def render_report(supplier: str, report_month: date | None = None) -> str:
-    if report_month is None:
-        report_month = get_report_month()
-
+def report_context(supplier: str, report_month: date, transactions: bool = True) -> dict:
+    """The template variables of the supplier report, minus the signature."""
     ranking, total, shared = get_global_ranking(supplier, report_month)
     compliance_rate = get_compliance_rate(supplier, report_month.year, report_month.month)
     monthly_compliance_scores, monthly_compliance_labels = get_monthly_compliance_scores(supplier, report_month)
@@ -41,14 +39,7 @@ def render_report(supplier: str, report_month: date | None = None) -> str:
     for f in factories:
         f["band"] = rate_band(f["compliance_rate"])
 
-    transactions = get_transactions(supplier, report_month)
-    for txn in transactions:
-        for key in ("updated_date", "approved_date", "handover_date"):
-            if txn.get(key):
-                txn[key] = txn[key].strftime("%d %b %Y")
-
-    return render(
-        "report.html.j2",
+    ctx = dict(
         supplier_name=supplier,
         month_name=report_month.strftime("%B"),
         year=report_month.year,
@@ -70,6 +61,19 @@ def render_report(supplier: str, report_month: date | None = None) -> str:
         line_details=line_details,
         line_totals=line_totals,
         compliance_data=get_compliance_data(supplier, report_month),
-        transactions=transactions,
-        dean_moss_signature=DEAN_MOSS_SIGNATURE,
     )
+    if transactions:
+        txns = get_transactions(supplier, report_month)
+        for txn in txns:
+            for key in ("updated_date", "approved_date", "handover_date"):
+                if txn.get(key):
+                    txn[key] = txn[key].strftime("%d %b %Y")
+        ctx["transactions"] = txns
+    return ctx
+
+
+def render_report(supplier: str, report_month: date | None = None) -> str:
+    if report_month is None:
+        report_month = get_report_month()
+    return render("report.html.j2", **report_context(supplier, report_month),
+                  dean_moss_signature=DEAN_MOSS_SIGNATURE)

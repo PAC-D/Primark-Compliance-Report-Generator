@@ -75,6 +75,31 @@ RIGHT = Alignment(horizontal="right", vertical="center", indent=1)
 FIRST_CONTENT_ROW = 6  # below the title, subtitle and accent rule
 
 
+def summary_context(report_month: date) -> dict:
+    """Everything the summary workbook (and the dashboard) shows for one month."""
+    country_data, chart_labels, country_order = get_summary_country_monthly_trend(report_month)
+    line_details, line_totals = get_summary_line_details(report_month)
+    all_supplier_trend, month_labels = get_all_suppliers_trend(report_month)
+    return {
+        "sources": get_summary_sources(report_month),
+        "compliance_data": get_summary_country_compliance(report_month),
+        "country_data": country_data,
+        "chart_labels": chart_labels,
+        "country_order": country_order,
+        "line_details": line_details,
+        "line_totals": line_totals,
+        "top_suppliers": get_top_suppliers(report_month),
+        "suppliers_below": get_suppliers_below_threshold(report_month),
+        "all_supplier_trend": all_supplier_trend,
+        "month_labels": month_labels,
+        "email_map": get_supplier_emails_map(),
+        "working_days": region_working_days(report_month)["cn"],
+        "days_in_month": calendar.monthrange(report_month.year, report_month.month)[1],
+        "month_name": report_month.strftime("%B"),
+        "year": report_month.year,
+    }
+
+
 def render_summary_excel(report_month: date | None = None) -> Workbook:
     if report_month is None:
         report_month = get_report_month()
@@ -82,26 +107,16 @@ def render_summary_excel(report_month: date | None = None) -> Workbook:
     wb = Workbook()
     wb.remove(wb.active)
 
-    sources = get_summary_sources(report_month)
-    compliance_data = get_summary_country_compliance(report_month)
-    country_data, chart_labels, country_order = get_summary_country_monthly_trend(report_month)
-    line_details, line_totals = get_summary_line_details(report_month)
-    top_suppliers = get_top_suppliers(report_month)
-    suppliers_below = get_suppliers_below_threshold(report_month)
-    all_supplier_trend, month_labels = get_all_suppliers_trend(report_month)
-    email_map = get_supplier_emails_map()
+    c = summary_context(report_month)
+    month_name, year = c["month_name"], c["year"]
 
-    month_name = report_month.strftime("%B")
-    year = report_month.year
-
-    _build_summary_sheet(wb, sources, compliance_data, country_data,
-                         chart_labels, country_order, month_name, year,
-                         (region_working_days(report_month)["cn"],
-                          calendar.monthrange(report_month.year, report_month.month)[1]))
-    _build_visibility_sheet(wb, line_details, line_totals, month_name, year)
-    _build_top_performers_sheet(wb, top_suppliers, month_name, year)
-    _build_follow_up_required_sheet(wb, suppliers_below, email_map, f"{month_name} {year}")
-    _build_yearly_performance_sheet(wb, all_supplier_trend, month_labels, year)
+    _build_summary_sheet(wb, c["sources"], c["compliance_data"], c["country_data"],
+                         c["chart_labels"], c["country_order"], month_name, year,
+                         (c["working_days"], c["days_in_month"]))
+    _build_visibility_sheet(wb, c["line_details"], c["line_totals"], month_name, year)
+    _build_top_performers_sheet(wb, c["top_suppliers"], month_name, year)
+    _build_follow_up_required_sheet(wb, c["suppliers_below"], c["email_map"], f"{month_name} {year}")
+    _build_yearly_performance_sheet(wb, c["all_supplier_trend"], c["month_labels"], year)
 
     wb.properties.title = f"TPS Compliance Report – {month_name} {year}"
     wb.properties.creator = "PAC-D"

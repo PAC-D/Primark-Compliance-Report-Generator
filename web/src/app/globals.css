@@ -1,0 +1,259 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* The state variants and utility shadcn's components use (from shadcn 4.23.0's tailwind.css, copied so the
+   shadcn CLI package is not a dependency) */
+@custom-variant data-open {
+  &:where([data-state="open"]),
+  &:where([data-open]:not([data-open="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-closed {
+  &:where([data-state="closed"]),
+  &:where([data-closed]:not([data-closed="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-checked {
+  &:where([data-state="checked"]),
+  &:where([data-checked]:not([data-checked="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-unchecked {
+  &:where([data-state="unchecked"]),
+  &:where([data-unchecked]:not([data-unchecked="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-selected {
+  &:where([data-selected="true"]) {
+    @slot;
+  }
+}
+
+@custom-variant data-disabled {
+  &:where([data-disabled="true"]),
+  &:where([data-disabled]:not([data-disabled="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-active {
+  &:where([data-state="active"]),
+  &:where([data-active]:not([data-active="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-horizontal {
+  &:where([data-orientation="horizontal"]) {
+    @slot;
+  }
+}
+
+@custom-variant data-vertical {
+  &:where([data-orientation="vertical"]) {
+    @slot;
+  }
+}
+
+@utility no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* shadcn's dark: variant follows our theme: data-theme="dark", or System (no data-theme) on a dark device. */
+@custom-variant dark {
+  &:where([data-theme="dark"], [data-theme="dark"] *) { @slot; }
+  @media (prefers-color-scheme: dark) { &:where(:root:not([data-theme]), :root:not([data-theme]) *) { @slot; } }
+}
+
+/* Design tokens: Carton Connect's (C:\dev\primark-portal\src\app\globals.css), plus the mockup's --seg and --tick.
+   data-theme on <html> comes from localStorage (src/lib/theme.ts); none means System. */
+:root {
+  --canvas:#F5F5F7; --surface:#FFFFFF; --surface2:#FAFAFC; --ink:#1D1D1F; --ink2:#6E6E73; --line:#E5E5EA; --line2:#F0F0F3;
+  --fill:rgba(118,118,128,.12); --bar:rgba(255,255,255,.72); --primary:#002B61; --accent:#00A0D5; --accent-ink:#00658A;
+  --amber:#A15F00; --amber-bar:#FF9F0A; --red:#D70015; --ok:#1B7F3B; --warn-soft:#FFF4E5;
+  --shadow:0 1px 3px rgba(0,0,0,.06),0 0 0 .5px rgba(0,0,0,.05); --pop:0 10px 30px rgba(0,0,0,.14),0 0 0 .5px rgba(0,0,0,.08);
+  --seg:0 1px 3px rgba(0,0,0,.12),0 0 0 .5px rgba(0,0,0,.04); --tick:rgba(0,160,213,.11);
+  --bar-h:56px; color-scheme:light;
+
+  /* shadcn's variables, pointed at the tokens above (they resolve per theme, since the dark overrides are on :root too).
+     --background is the control/surface colour shadcn puts inputs and active tabs on; the page itself is --canvas.
+     shadcn's --accent (a hover fill) is not used: --accent stays Primark blue, and the components hover with --muted. */
+  --background:var(--surface); --foreground:var(--ink);
+  --card:var(--surface); --card-foreground:var(--ink); --popover:var(--surface); --popover-foreground:var(--ink);
+  --primary-foreground:#fff; --secondary:var(--fill); --secondary-foreground:var(--ink);
+  --muted:var(--fill); --muted-foreground:var(--ink2); --destructive:var(--red);
+  --border:var(--line); --input:var(--line); --ring:var(--accent);
+  --chart-1:var(--primary); --chart-2:var(--accent); --chart-3:var(--ink2); --chart-4:var(--amber-bar); --chart-5:var(--ok);
+  /* more series (one line per country): the workbook's colour-blind-checked palette, mid tones that read on both themes */
+  --chart-6:#EB6834; --chart-7:#8E7CE0; --chart-8:#E87BA4; --chart-9:#A0785A;
+  --radius:14px;
+}
+/* While a selection bar is up (bottom centre), toasts sit above it rather than over it. !important beats Sonner's inline variables. */
+body:has([data-selbar]) [data-sonner-toaster] { --offset-bottom: 84px !important; --mobile-offset-bottom: 120px !important; }
+:root[data-theme="dark"] {
+  --canvas:#000000; --surface:#1C1C1E; --surface2:#232325; --ink:#F5F5F7; --ink2:#98989D; --line:#38383A; --line2:#2C2C2E;
+  --fill:rgba(118,118,128,.24); --bar:rgba(28,28,30,.72); --primary:#0A6FB5; --accent:#2BB8EA; --accent-ink:#7FD3F2;
+  --amber:#FFB340; --red:#FF6961; --ok:#32D74B; --warn-soft:#3A2A10;
+  --shadow:0 0 0 .5px rgba(255,255,255,.08); --pop:0 10px 30px rgba(0,0,0,.5),0 0 0 .5px rgba(255,255,255,.1);
+  --seg:0 0 0 .5px rgba(255,255,255,.1); --tick:rgba(43,184,234,.16); color-scheme:dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --canvas:#000000; --surface:#1C1C1E; --surface2:#232325; --ink:#F5F5F7; --ink2:#98989D; --line:#38383A; --line2:#2C2C2E;
+    --fill:rgba(118,118,128,.24); --bar:rgba(28,28,30,.72); --primary:#0A6FB5; --accent:#2BB8EA; --accent-ink:#7FD3F2;
+    --amber:#FFB340; --red:#FF6961; --ok:#32D74B; --warn-soft:#3A2A10;
+    --shadow:0 0 0 .5px rgba(255,255,255,.08); --pop:0 10px 30px rgba(0,0,0,.5),0 0 0 .5px rgba(255,255,255,.1);
+    --seg:0 0 0 .5px rgba(255,255,255,.1); --tick:rgba(43,184,234,.16); color-scheme:dark;
+  }
+}
+
+/* Semantic colour names for the pages (text-ink2, bg-surface, …), so dark mode reaches every page. */
+@theme inline {
+  --font-sans: var(--font-inter), -apple-system, "Segoe UI", system-ui, sans-serif;
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface2: var(--surface2);
+  --color-ink: var(--ink);
+  --color-ink2: var(--ink2);
+  --color-line: var(--line);
+  --color-line2: var(--line2);
+  --color-fill: var(--fill);
+  --color-primary: var(--primary);
+  --color-accent: var(--accent);
+  --color-link: var(--accent-ink);
+  --color-danger: var(--red);
+  --color-ok: var(--ok);
+  --color-warn: var(--amber);
+  --color-warn-soft: var(--warn-soft);
+
+  /* shadcn */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  /* Corners: controls 9px (rounded-lg), cards and dialogs 14px (rounded-xl = --radius) */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 9px;
+  --radius-xl: var(--radius);
+  --radius-2xl: 18px;
+  /* Carton Connect's type scale: 13px body, 12px small, 16px panel titles */
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 16px;
+}
+
+@layer base {
+  html { scrollbar-gutter: stable; }
+  * { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--ink2) 45%, transparent) transparent; }
+  *, ::before, ::after { border-color: var(--line); } /* a bare border takes the hairline (Tailwind v4's default is currentColor) */
+  ::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+  body {
+    font-size: 13px; line-height: 1.45; letter-spacing: -0.006em; background: var(--canvas); color: var(--ink);
+    -webkit-font-smoothing: antialiased; font-variant-numeric: tabular-nums; transition: background-color .35s ease, color .35s ease;
+  }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button { cursor: pointer; }
+  button:disabled { cursor: default; }
+  /* Nothing moves when the device asks for reduced motion (CSS transitions and keyframes; GSAP and NumberFlow check too) */
+  @media (prefers-reduced-motion: reduce) {
+    *, ::before, ::after { animation-duration: 0s !important; animation-iteration-count: 1 !important; transition-duration: 0s !important; }
+  }
+}
+
+/* The shell and its parts, to the approved mockup. */
+@layer components {
+  .skip { position: absolute; left: 12px; top: -48px; z-index: 50; padding: 8px 12px; border-radius: 8px; background: var(--primary); color: #fff; }
+  .skip:focus { top: 10px; }
+
+  /* Top bar */
+  .topbar {
+    position: sticky; top: 0; z-index: 20; height: var(--bar-h); display: flex; align-items: center; gap: 22px; padding: 0 24px;
+    background: var(--bar); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px);
+    border-bottom: 1px solid var(--line); transition: background-color .35s ease, border-color .35s ease;
+  }
+  .logos { display: flex; align-items: center; gap: 14px; flex: none; }
+  .logos a { display: flex; }
+  .logo-pacd { height: 24px; width: auto; }
+  .logo-primark { height: 21px; width: auto; max-width: none; margin: 0 -11px; } /* the file has 11px of empty space each side */
+  .logo-divider { width: 1px; height: 20px; background: var(--line); }
+  /* No backing in either theme: the original files as they are (the navy PAC-D logo on black was accepted) */
+  .navtrack { position: relative; display: flex; gap: 2px; padding: 2px; border-radius: 10px; background: var(--fill); min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  .navpill { position: absolute; left: 0; top: 2px; height: 30px; border-radius: 8px; background: var(--surface); box-shadow: var(--seg); opacity: 0; }
+  .navpill[data-ready] { transition: transform .22s cubic-bezier(.2,0,0,1), width .22s cubic-bezier(.2,0,0,1); }
+  .navtrack a { position: relative; display: inline-flex; align-items: center; height: 30px; padding: 0 12px; border-radius: 8px; font-weight: 500; color: var(--ink2); white-space: nowrap; transition: color .2s ease; }
+  .navtrack a:hover { color: var(--ink); }
+  .navtrack a[aria-current] { color: var(--ink); }
+  .topbar-end { margin-left: auto; display: flex; align-items: center; gap: 10px; position: relative; flex: none; }
+  .avatar {
+    width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; flex: none;
+    background: var(--primary); color: #fff; font-size: 12px; font-weight: 600;
+  }
+  .menu { position: absolute; right: 0; top: 42px; width: 280px; padding: 6px; border-radius: 14px; background: var(--surface); color: var(--ink); box-shadow: var(--pop); }
+  .who { display: flex; gap: 12px; align-items: center; padding: 10px 10px 12px; border-bottom: 1px solid var(--line2); }
+  .who b { display: block; font-weight: 600; }
+  .who span { color: var(--ink2); font-size: 12px; }
+  .menu-label { font-size: 11px; font-weight: 500; color: var(--ink2); padding: 10px 10px 6px; }
+  .menu .seg { margin: 0 6px 6px; display: flex; }
+  .menu .seg button { flex: 1; }
+  @media (max-width: 639px) {
+    .topbar { padding: 0 16px; gap: 10px; }
+    .logo-divider, .logo-primark-link { display: none !important; }
+  }
+
+  /* Page */
+  #content { padding: 22px 24px 76px; max-width: 2200px; margin: 0 auto; }
+  #content:focus { outline: none; } /* the skip link's target: focus lands here, no ring round the whole page */
+  @media (max-width: 639px) { #content { padding-inline: 16px; } }
+  .head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+  .head h1 { font-size: 28px; font-weight: 700; line-height: 1.15; letter-spacing: -.022em; }
+  .head p { color: var(--ink2); margin-top: 2px; }
+  .head .act { margin-left: auto; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .site-footer { position: fixed; right: 18px; bottom: 18px; z-index: 10; padding: 8px 10px; border-radius: 10px; font-size: 11px; color: var(--ink2); background: var(--surface); box-shadow: var(--shadow); }
+  .note { color: var(--ink2); font-size: 12px; margin-top: -4px; }
+
+  /* Segmented control */
+  .seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 10px; background: var(--fill); }
+  .seg button { padding: 6px 12px; border-radius: 8px; font-weight: 500; color: var(--ink2); white-space: nowrap; transition: color .2s ease; }
+  .seg button:hover { color: var(--ink); }
+  .seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--seg); }
+  .seg b { font-weight: 600; margin-left: 4px; color: var(--ink); }
+  .head .act { max-width: 100%; }
+  .head .seg { max-width: 100%; overflow-x: auto; } /* the band counts scroll sideways on a phone rather than run off it */
+
+
+  /* The legend under a chart title (ChartCard) */
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; font-size: 12px; font-weight: 400; color: var(--ink2); }
+  .legend span { white-space: nowrap; }
+  .legend span::before { content: ""; display: inline-block; width: 11px; height: 4px; border-radius: 2px; margin-right: 6px; vertical-align: 2px; background: var(--c); }
+  .legend span.dash::before { background: repeating-linear-gradient(90deg, var(--c) 0 4px, transparent 4px 6px); }
+}

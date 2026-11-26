@@ -50,7 +50,7 @@ class TestRenderKpiReport:
         june_last_year = table("Jun '25", [row("China", 1, 1, 5)])
         with metrics([JUNE, MAY, june_last_year], ["Jun '26", "May '26", "Jun '25"]):
             html = kpi_renderer.render_kpi_report(date(2026, 6, 1))
-        assert html.count(">Jun '25</th>") == 3 + 1  # suppliers, factories, lines + Individual Performance
+        assert html.count(">Jun &#39;25</th>") == 3 + 1  # suppliers, factories, lines + Individual Performance
 
     def test_hides_monthly_summary_without_tables(self):
         with metrics([], []):
@@ -122,3 +122,11 @@ class TestMonthComparison:
     def test_no_lines_gives_zero_share(self):
         empty = table("Jun '26", [row("China", 1, 1, 0)])
         assert kpi_renderer.month_comparison([empty])[0]["share"] == 0
+
+
+def test_kpi_report_is_sharp():
+    import re
+    with metrics([JUNE, MAY], ["Jun '26", "May '26"]):
+        html = kpi_renderer.render_kpi_report(date(2026, 6, 1))
+    assert not re.search(r"box-shadow:\s*[-\d.]+(?:px)?\s+[-\d.]+(?:px)?\s+[1-9]", html)
+    assert "devicePixelRatio:3" in html

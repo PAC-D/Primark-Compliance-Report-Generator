@@ -3,6 +3,7 @@
 import calendar
 from collections.abc import Iterable
 from datetime import date
+from decimal import Decimal
 
 from tps.config import REPORT_MONTH_OFFSET
 
@@ -40,6 +41,7 @@ SUPPLIER_NORMALISATION = {
     "PENTI GIYIM TICARET A.S.": "PENTI GIYIM TICARET A.S (80651)",
     "TEXPORT SYNDICATE PRIVATE LIMITED": "TEXPORT SYNDICATE PRIVATE LIMITED (83002)",
     "SAIDE GROUP DIS TICARET AS": "SAIDE GROUP DIS TICARET AS (80111)",
+    "YB Intl Co Ltd": "YB INT'L CO. LTD",
 }
 
 
@@ -94,21 +96,29 @@ def get_report_month() -> date:
     return add_months(date.today(), -REPORT_MONTH_OFFSET)
 
 
-def ask_report_month(title: str) -> date:
-    """Prompt for a report month; Enter or invalid input gives the default."""
-    print(f"\n=== {title} ===")
-    print("Enter year and month for the report (or press Enter for default: previous month)")
-    year_input = input("Year (e.g., 2026) [default: previous month]: ").strip()
-    month_input = input("Month (1-12) [default: previous month]: ").strip()
-
-    if month_input:
+def json_safe(obj):
+    """Dates to ISO strings and Decimals to floats, through dicts, lists, tuples and sets.
+    Non-string dict keys become strings the same way."""
+    if isinstance(obj, dict):
+        return {_key(k): json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, set):
         try:
-            year = int(year_input) if year_input else date.today().year
-            report_month = date(year, int(month_input), 1)
-            print(f"Using specified month: {report_month.strftime('%B %Y')}")
-            return report_month
-        except ValueError:
-            print("Invalid date. Using default.")
+            obj = sorted(obj)
+        except TypeError:
+            obj = list(obj)
+    if isinstance(obj, (list, tuple)):
+        return [json_safe(v) for v in obj]
+    if isinstance(obj, date):
+        return obj.isoformat()
+    if isinstance(obj, Decimal):
+        return float(obj)
+    return obj
 
-    print("Using default report month.")
-    return get_report_month()
+
+def _key(k):
+    return k if isinstance(k, str) else str(json_safe(k))
+
+
+def like_contains(value: str) -> str:
+    """A LIKE/ILIKE pattern matching `value` as part-text, wildcards in it escaped."""
+    return "%" + value.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_") + "%"

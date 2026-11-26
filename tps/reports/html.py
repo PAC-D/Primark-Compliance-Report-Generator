@@ -13,7 +13,7 @@ VENDOR = ASSETS_DIR / "vendor"
 
 _env = Environment(
     loader=FileSystemLoader(str(TEMPLATES_DIR)),
-    autoescape=select_autoescape(["html", "xml"]),
+    autoescape=select_autoescape(["html", "xml", "j2"]),
 )
 
 

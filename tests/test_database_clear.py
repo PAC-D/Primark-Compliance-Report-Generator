@@ -10,7 +10,7 @@ def _statements(conn):
 def test_clear_raw_data_deletes_rows_but_keeps_tables_and_emails():
     engine = MagicMock()
     conn = engine.connect.return_value.__enter__.return_value
-    with patch("tps.db.engine", engine):
+    with patch("tps.db.get_engine", return_value=engine):
         db.clear_raw_data()
 
     statements = _statements(conn)
@@ -23,7 +23,7 @@ def test_clear_raw_data_deletes_rows_but_keeps_tables_and_emails():
 def test_set_supplier_emails_replaces_only_the_given_suppliers():
     engine = MagicMock()
     conn = engine.begin.return_value.__enter__.return_value
-    with patch("tps.db.engine", engine):
+    with patch("tps.db.get_engine", return_value=engine):
         db.set_supplier_emails({" ACME ": ["a@x.com", "b@x.com"], "gone ltd": []})
 
     calls = conn.execute.call_args_list

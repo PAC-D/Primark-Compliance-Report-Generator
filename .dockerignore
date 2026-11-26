@@ -1,0 +1,13 @@
+.git
+.env
+.venv*
+config.yaml
+data
+output
+logs
+web
+tests
+docs
+graphify-out
+**/__pycache__
+.env*

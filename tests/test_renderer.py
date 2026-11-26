@@ -67,3 +67,61 @@ def test_defaults_to_report_month(metrics):
 @pytest.mark.parametrize("rate, band", [(100, "high"), (70, "high"), (69.99, "mid"), (40, "mid"), (39.9, "low"), (0, "low")])
 def test_rate_bands(rate, band):
     assert supplier_report.rate_band(rate) == band
+
+
+def test_report_escapes_supplier_name(metrics):
+    html = supplier_report.render_report("A <B> & C", date(2024, 1, 1))
+    assert "A &lt;B&gt; &amp; C" in html
+    assert "A <B> & C" not in html
+
+
+BLURRED_SHADOW = r"box-shadow:\s*[-\d.]+(?:px)?\s+[-\d.]+(?:px)?\s+[1-9]"
+
+
+def test_report_has_no_blurred_shadows(metrics):
+    import re
+    html = supplier_report.render_report("Test Supplier", date(2024, 1, 1))
+    assert not re.search(BLURRED_SHADOW, html)
+
+
+def test_report_charts_use_high_dpr(metrics):
+    assert "devicePixelRatio:3" in supplier_report.render_report("Test Supplier", date(2024, 1, 1))
+
+
+# --- Shared contexts ------------------------------------------------------------
+
+def test_report_context_without_transactions(metrics):
+    ctx = supplier_report.report_context("Test Supplier", date(2024, 1, 1), transactions=False)
+    assert "transactions" not in ctx
+    assert "transactions" in supplier_report.report_context("Test Supplier", date(2024, 1, 1))
+    assert "dean_moss_signature" not in ctx
+
+
+def test_json_safe_dates_and_decimals():
+    from decimal import Decimal
+    from tps.common import json_safe
+    out = json_safe({"d": date(2026, 4, 1), "n": [Decimal("1.5"), {"x": Decimal("2")}], "s": "a"})
+    assert out == {"d": "2026-04-01", "n": [1.5, {"x": 2.0}], "s": "a"}
+    assert all(type(v) is float for v in (out["n"][0], out["n"][1]["x"]))
+
+
+def test_report_context_empty_month():
+    import json
+    from tps.common import json_safe
+    empty = dict(get_supplier_kpis=lambda *a: {}, get_global_ranking=lambda *a: (None, 0, False),
+                 get_local_rankings=lambda *a: [], get_compliance_rate=lambda *a: 0.0,
+                 get_monthly_compliance_scores=lambda *a: ([], []), get_standard_carton_scores=lambda *a: ([], []),
+                 get_density_scores=lambda *a: ([], []), get_associated_factories=lambda *a: [],
+                 get_line_details=lambda *a: ([], EMPTY_TOTALS), get_compliance_data=lambda *a: [],
+                 get_transactions=lambda *a: [])
+    with patch.multiple("tps.reports.supplier_report", **empty):
+        json.dumps(json_safe(supplier_report.report_context("S", date(2026, 9, 1))))
+
+
+def test_json_safe_keys_and_sets():
+    import json
+    from decimal import Decimal
+    from tps.common import json_safe
+    out = json_safe({date(2026, 8, 1): Decimal("1.5"), Decimal("2"): {3, 1}, 7: "x"})
+    assert out == {"2026-08-01": 1.5, "2.0": [1, 3], "7": "x"}
+    assert json.loads(json.dumps(out)) == out

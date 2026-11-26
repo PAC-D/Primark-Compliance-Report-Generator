@@ -6,7 +6,6 @@ import pytest
 from tps import common
 from tps.common import (
     add_months,
-    ask_report_month,
     month_label,
     months_back,
     next_month_start,
@@ -98,18 +97,5 @@ class TestMonths:
         assert months_back(date(2026, 6, 1), date(2026, 7, 1)) == []
 
 
-class TestAskReportMonth:
-    def test_explicit_month(self):
-        with patch("builtins.input", side_effect=["2025", "3"]):
-            assert ask_report_month("X") == date(2025, 3, 1)
-
-    def test_blank_gives_default(self):
-        with patch("builtins.input", side_effect=["", ""]), \
-             patch.object(common, "get_report_month", return_value=date(2026, 9, 1)):
-            assert ask_report_month("X") == date(2026, 9, 1)
-
-    def test_invalid_month_gives_default(self, capsys):
-        with patch("builtins.input", side_effect=["2026", "13"]), \
-             patch.object(common, "get_report_month", return_value=date(2026, 9, 1)):
-            assert ask_report_month("X") == date(2026, 9, 1)
-        assert "Invalid date" in capsys.readouterr().out
+def test_yb_names_normalise_together():
+    assert normalise_supplier("YB Intl Co Ltd") == normalise_supplier("YB INT'L CO. LTD") == "YB INT'L CO. LTD"

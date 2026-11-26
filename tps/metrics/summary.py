@@ -248,8 +248,8 @@ def get_suppliers_below_threshold(report_month: date, threshold: float = 40.0) -
                 r0.qty,
                 r0.reflected_lines,
                 r0.rate AS compliance_rate,
-                COALESCE(r1.rate, 0) AS prev_1_rate,
-                COALESCE(r2.rate, 0) AS prev_2_rate,
+                r1.rate AS prev_1_rate,
+                r2.rate AS prev_2_rate,
                 (COALESCE(r0.rate, 0) + COALESCE(r1.rate, 0) + COALESCE(r2.rate, 0))
                   / NULLIF(
                       (CASE WHEN r0.rate IS NOT NULL THEN 1 ELSE 0 END)
@@ -291,8 +291,8 @@ def get_suppliers_below_threshold(report_month: date, threshold: float = 40.0) -
                 "qty": row.qty,
                 "reflected_lines": row.reflected_lines,
                 "compliance_rate": round(row.compliance_rate, 1),
-                "prev_1_rate": round(row.prev_1_rate, 1),
-                "prev_2_rate": round(row.prev_2_rate, 1),
+                "prev_1_rate": None if row.prev_1_rate is None else round(row.prev_1_rate, 1),
+                "prev_2_rate": None if row.prev_2_rate is None else round(row.prev_2_rate, 1),
                 "avg_3month": round(row.avg_3month, 1),
             })
         return results

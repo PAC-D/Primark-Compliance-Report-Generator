@@ -3,24 +3,26 @@
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
-from tps.config import CONFIG
+from tps.config import database_url
 
-_db = CONFIG["database"]
+_engine = None
 
-engine = create_engine(
-    f"postgresql+psycopg2://{_db['user']}:{_db['password']}"
-    f"@{_db['host']}:{_db['port']}/{_db['name']}"
-)
-_SessionFactory = sessionmaker(bind=engine)
+
+def get_engine():
+    """The shared engine, built on first use so importing never needs DB settings."""
+    global _engine
+    if _engine is None:
+        _engine = create_engine(database_url())
+    return _engine
 
 
 def get_session() -> Session:
-    return _SessionFactory()
+    return sessionmaker(bind=get_engine())()
 
 
 def init_db() -> None:
     """Drop and recreate raw_data; create supplier_emails if missing."""
-    with engine.connect() as conn:
+    with get_engine().connect() as conn:
         conn.execute(text("DROP TABLE IF EXISTS raw_data CASCADE"))
         conn.execute(text("""
         CREATE TABLE raw_data (
@@ -64,7 +66,7 @@ def init_db() -> None:
 def ensure_indexes() -> None:
     """Every report query filters on supplier and/or handover month; without these
     each one scans the whole table (measured: 8.7 s -> 0.12 s per supplier report)."""
-    with engine.connect() as conn:
+    with get_engine().connect() as conn:
         conn.execute(text("CREATE INDEX IF NOT EXISTS raw_data_supplier_date_idx ON raw_data (supplier, handover_date)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS raw_data_handover_date_idx ON raw_data (handover_date)"))
         conn.commit()
@@ -72,7 +74,7 @@ def ensure_indexes() -> None:
 
 def init_supplier_emails_table() -> None:
     """Creates the supplier_emails table if it doesn't exist."""
-    with engine.connect() as conn:
+    with get_engine().connect() as conn:
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS supplier_emails (
                 id SERIAL PRIMARY KEY,
@@ -90,7 +92,7 @@ def init_supplier_emails_table() -> None:
 
 def clear_raw_data() -> None:
     """Clears every transaction row. Supplier emails are kept: they are edited by hand."""
-    with engine.connect() as conn:
+    with get_engine().connect() as conn:
         conn.execute(text("DELETE FROM raw_data"))
         conn.commit()
 
@@ -98,7 +100,7 @@ def clear_raw_data() -> None:
 def set_supplier_emails(emails_by_supplier: dict[str, list[str]]) -> None:
     """Replace the stored emails of each given supplier, in one transaction; an
     empty list removes them. Other suppliers are untouched. Names are stored lowercased."""
-    with engine.begin() as conn:
+    with get_engine().begin() as conn:
         for supplier, emails in emails_by_supplier.items():
             supplier = supplier.strip().lower()
             conn.execute(text("DELETE FROM supplier_emails WHERE supplier_name = :supplier"),

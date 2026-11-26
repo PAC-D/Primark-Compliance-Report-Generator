@@ -343,7 +343,7 @@ def test_process_file_replaces_rows_of_the_same_file(tmp_path):
                   "Packaging Confirmation Status": ["Pending"]}).to_excel(path, index=False)
     engine = MagicMock()
     conn = engine.begin.return_value.__enter__.return_value
-    with patch("tps.ingest.engine", engine):
+    with patch("tps.ingest.get_engine", return_value=engine):
         assert process_file(str(path)) == 1
 
     delete, insert = conn.execute.call_args_list

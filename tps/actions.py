@@ -7,8 +7,9 @@ progress(done, total, message); every operation returns a Result.
 import logging
 import queue
 import threading
+import zipfile
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from openpyxl import Workbook
@@ -17,7 +18,7 @@ from tps import config
 from tps.common import get_report_month, report_region, safe_filename, split_emails
 from tps.db import clear_raw_data, set_supplier_emails
 from tps.extract import extract_by_supplier, extract_monthly, monthly_path
-from tps.ingest import copy_to_data, import_supplier_emails, is_file_processed, process_file
+from tps.ingest import import_supplier_emails, is_file_processed, process_file
 from tps.metrics.summary import get_latest_data_month, get_summary_sources, get_supplier_emails_map
 from tps.metrics.supplier import get_supplier_countries_by_month, get_supplier_kpis, get_suppliers_for_month
 from tps.reports.kpi_report import render_kpi_report
@@ -27,10 +28,10 @@ from tps.reports.supplier_report import render_report
 
 logger = logging.getLogger(__name__)
 
-# ponytail: 4 render threads, each driving its own headless Chromium (~200 MB).
+# ponytail: render threads, each driving its own headless Chromium (~200 MB).
 # Chromium does the heavy lifting in its own processes, so threads parallelise fine;
 # raise on a machine with more cores and memory, lower if it struggles.
-PDF_WORKERS = 4
+PDF_WORKERS = config.PDF_WORKERS
 
 
 @dataclass
@@ -67,7 +68,7 @@ def month_status(report_month: date) -> dict:
         if not paths:
             return None
         newest = max(p.stat().st_mtime for p in paths)
-        return {"count": len(paths), "updated": datetime.fromtimestamp(newest).isoformat(), **extra}
+        return {"count": len(paths), "updated": datetime.fromtimestamp(newest, timezone.utc).isoformat(), **extra}
 
     reports = folder / config.SUPPLIER_REPORTS
     data = folder / config.SUPPLIER_DATA
@@ -85,8 +86,7 @@ def month_status(report_month: date) -> dict:
     }
 
 
-def load_transaction_files(paths, reprocess: bool = False, copy: bool = True,
-                           progress=_no_progress) -> Result:
+def load_transaction_files(paths, reprocess: bool = False, progress=_no_progress) -> Result:
     """Load bi-weekly exports into raw_data. Files already loaded are skipped
     unless reprocess is set; loading a file again replaces its rows."""
     loaded, details = 0, []
@@ -100,8 +100,6 @@ def load_transaction_files(paths, reprocess: bool = False, copy: bool = True,
             continue
         try:
             rows = process_file(str(path))
-            if copy:
-                copy_to_data(path)
             logger.info(f"Inserted {rows} rows from {name}")
             details.append(f"Loaded {name} ({rows} rows)")
             loaded += 1
@@ -111,22 +109,17 @@ def load_transaction_files(paths, reprocess: bool = False, copy: bool = True,
     return Result(f"Loaded {loaded} of {len(paths)} file(s)", details=details)
 
 
-def clear_database(reload: bool = False, progress=_no_progress) -> Result:
-    """Delete every row from raw_data (supplier emails are kept); optionally reload data/."""
+def clear_database(progress=_no_progress) -> Result:
+    """Delete every row from raw_data (supplier emails are kept)."""
     clear_raw_data()
     logger.info("Database cleared: all rows removed from raw_data")
-    if not reload:
-        return Result("Database cleared (supplier emails kept)")
-
-    files = sorted(config.DATA_DIR.glob("*.xlsx")) + sorted(config.DATA_DIR.glob("*.xls"))
-    loaded = load_transaction_files(files, reprocess=True, copy=False, progress=progress)
-    return Result(f"Database cleared, then {loaded.summary.lower()}", details=loaded.details)
+    return Result("Database cleared (supplier emails kept)")
 
 
 def _supplier_pdf(supplier: str, report_month: date, folder: Path) -> Path:
     """One supplier's compliance PDF. Runs on a render thread with its own browser."""
-    origin_country = get_supplier_kpis(supplier, report_month).get("origin_country", "")
-    region_folder = folder / report_region(origin_country.split(","))
+    origin_country = get_supplier_kpis(supplier, report_month).get("origin_country")
+    region_folder = folder / report_region((origin_country or "").split(","))
     region_folder.mkdir(parents=True, exist_ok=True)
     output_path = region_folder / f"{safe_filename(supplier)}_{report_month:%B_%Y}.pdf"
 
@@ -137,10 +130,15 @@ def _supplier_pdf(supplier: str, report_month: date, folder: Path) -> Path:
     return output_path
 
 
-def generate_supplier_reports(report_month: date, progress=_no_progress) -> Result:
-    """One compliance PDF per supplier with data in the month, rendered
-    PDF_WORKERS at a time, under <month>/Supplier_Reports/<BD or CN>_Region/."""
-    suppliers = get_suppliers_for_month(report_month)
+def generate_supplier_reports(report_month: date, suppliers: list[str] | None = None,
+                              progress=_no_progress) -> Result:
+    """One compliance PDF per supplier (all with data in the month unless `suppliers`
+    is given), rendered PDF_WORKERS at a time, under <month>/Supplier_Reports/<BD or CN>_Region/.
+    The PDFs made are also zipped into Supplier_Reports_<Month>_<Year>.zip in the month folder,
+    or Selected_Supplier_Reports_<Month>_<Year>.zip when `suppliers` is given, so a run for a
+    few suppliers never replaces the full month's zip."""
+    prefix = "Selected_Supplier_Reports" if suppliers else "Supplier_Reports"
+    suppliers = suppliers or get_suppliers_for_month(report_month)
     if not suppliers:
         return Result(f"No suppliers with data in {report_month:%B %Y}")
 
@@ -168,7 +166,7 @@ def generate_supplier_reports(report_month: date, progress=_no_progress) -> Resu
     workers = [threading.Thread(target=worker, daemon=True) for _ in range(min(PDF_WORKERS, len(suppliers)))]
     for w in workers:
         w.start()
-    generated, details = 0, []
+    generated, details, made = 0, [], []
     progress(0, len(suppliers), "Starting renderers")
     try:
         for done in range(1, len(suppliers) + 1):
@@ -176,6 +174,7 @@ def generate_supplier_reports(report_month: date, progress=_no_progress) -> Resu
             if error is None:
                 logger.info(f"Report saved: {path}")
                 generated += 1
+                made.append(path)
             else:
                 logger.error(f"Error generating report for {supplier}: {error}")
                 details.append(f"Skipped {supplier}: {error}")
@@ -185,9 +184,15 @@ def generate_supplier_reports(report_month: date, progress=_no_progress) -> Resu
         for w in workers:
             w.join()
 
+    archive = config.month_folder(report_month) / f"{prefix}_{report_month:%B_%Y}.zip"
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as z:
+        for path in made:
+            z.write(path, path.relative_to(folder))
+
     summary = f"Generated {generated} reports, {len(details)} skipped"
     logger.info(summary)
-    return Result(summary, folder=folder, details=details)
+    return Result(summary, files=[archive], folder=folder, details=details)
 
 
 def generate_summary_report(report_month: date, progress=_no_progress) -> Result:
@@ -219,12 +224,16 @@ def generate_kpi_report(report_month: date, progress=_no_progress) -> Result:
 def extract_supplier_data(report_month: date, progress=_no_progress) -> Result:
     progress(0, 1, "Writing one workbook per supplier")
     folder = extract_by_supplier(report_month.year, report_month.month)
-    return Result(f"Supplier data for {report_month:%B %Y}", folder=folder)
+    archive = config.month_folder(report_month) / f"Supplier_Data_{report_month:%B_%Y}.zip"
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as z:
+        for path in sorted(folder.glob("*/*.xlsx")):
+            z.write(path, path.relative_to(folder))
+    return Result(f"Supplier data for {report_month:%B %Y}", files=[archive], folder=folder)
 
 
 def extract_all_supplier_data(report_month: date, progress=_no_progress) -> Result:
-    """Raises FileNotFoundError when data/ has no files for the month."""
-    progress(0, 1, "Combining the month's files from data/")
+    """Raises FileNotFoundError when the month has no data."""
+    progress(0, 1, "Combining the month's data")
     path = extract_monthly(report_month.year, report_month.month)
     return Result(f"All supplier data for {report_month:%B %Y}", files=[path])
 

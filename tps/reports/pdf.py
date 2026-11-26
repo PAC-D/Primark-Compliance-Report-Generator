@@ -13,7 +13,8 @@ from playwright.sync_api import Page, sync_playwright
 from tps.reports.html import ALLPORT_LOGO, PRIMARK_LOGO
 
 NO_MARGIN = {"top": "0", "right": "0", "bottom": "0", "left": "0"}
-# Wider than an A4/A4-landscape page; 2x density keeps the chart canvases sharp.
+# Wider than an A4/A4-landscape page; 2x density keeps text and images sharp (the charts set their own
+# devicePixelRatio of 3).
 VIEWPORT = {"width": 1240, "height": 1754, "device_scale_factor": 2}
 
 # Chromium repeats these in every page's top and bottom margin (the template's @page rules
@@ -25,10 +26,16 @@ FOOTER = '''<div style="width:100%;padding:0 30px;margin-bottom:4mm;display:flex
   <span>Generated: {date}</span><span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span></div>'''
 
 _local = threading.local()
+# Chromium's memory grows with every render of the reused page (about 20 MB per report, 2.5 GB over 127),
+# so each thread restarts its browser after this many PDFs.
+RECYCLE_AFTER = 10
 
 
 def _page() -> Page:
+    if getattr(_local, "renders", 0) >= RECYCLE_AFTER:
+        close_browser()
     if getattr(_local, "page", None) is None:
+        _local.renders = 0
         _local.playwright = sync_playwright().start()
         _local.browser = _local.playwright.chromium.launch(headless=True)
         _local.page = _local.browser.new_page(viewport=VIEWPORT)
@@ -39,9 +46,14 @@ def close_browser() -> None:
     """Close this thread's browser, if it started one."""
     if getattr(_local, "page", None) is None:
         return
-    _local.browser.close()
-    _local.playwright.stop()
-    _local.page = _local.browser = _local.playwright = None
+    try:
+        try:
+            _local.browser.close()
+        finally:
+            _local.playwright.stop()
+    finally:  # always reset, so a failed close can't leave every later render raising
+        _local.page = _local.browser = _local.playwright = None
+        _local.renders = 0
 
 
 def html_to_pdf(html_content: str, output_path: str, header_footer: bool = False) -> None:
@@ -49,6 +61,7 @@ def html_to_pdf(html_content: str, output_path: str, header_footer: bool = False
     With it: page sizes and margins from the HTML's @page rules, and the logo header
     and "Generated / Page N of M" footer on every page."""
     page = _page()
+    _local.renders += 1
     try:
         # Every asset is inline and charts don't animate, so the page is final once
         # it has loaded and its fonts are ready - no network wait, no sleep.

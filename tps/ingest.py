@@ -1,7 +1,6 @@
 """Loading source workbooks into the database: bi-weekly transaction exports
 and the supplier email list."""
 
-import shutil
 from pathlib import Path
 
 import openpyxl
@@ -9,8 +8,7 @@ import pandas as pd
 from sqlalchemy import text
 
 from tps.common import normalise_supplier, split_emails
-from tps.config import DATA_DIR
-from tps.db import engine, init_supplier_emails_table, set_supplier_emails
+from tps.db import get_engine, init_supplier_emails_table, set_supplier_emails
 
 DROPPED_COLUMNS = [
     "Carton Specification(s)", "Priority", "Pack Type",
@@ -147,7 +145,7 @@ def process_file(filepath: str) -> int:
     col_names = ", ".join(available_cols)
     placeholders = ", ".join([f":{c}" for c in available_cols])
 
-    with engine.begin() as conn:
+    with get_engine().begin() as conn:
         conn.execute(text("DELETE FROM raw_data WHERE source_file = :source_file"),
                      {"source_file": Path(filepath).name})
         conn.execute(text(f"INSERT INTO raw_data ({col_names}) VALUES ({placeholders})"), records)
@@ -157,14 +155,10 @@ def process_file(filepath: str) -> int:
 
 def is_file_processed(filepath: str) -> bool:
     filename = Path(filepath).name
-    with engine.connect() as conn:
+    with get_engine().connect() as conn:
         result = conn.execute(text("SELECT 1 FROM raw_data WHERE source_file = :filename LIMIT 1"), {"filename": filename})
         return result.fetchone() is not None
 
-
-def copy_to_data(filepath: str) -> None:
-    DATA_DIR.mkdir(exist_ok=True)
-    shutil.copy2(filepath, DATA_DIR / Path(filepath).name)
 
 def import_supplier_emails(filepath: str) -> int:
     """Set each supplier's emails from a workbook's 'Supplier Name' / 'Email'

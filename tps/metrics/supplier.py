@@ -4,7 +4,7 @@ from datetime import date
 
 from sqlalchemy import text
 
-from tps.common import get_report_month, month_label, months_back, next_month_start
+from tps.common import get_report_month, like_contains, month_label, months_back, next_month_start
 from tps.db import get_session
 
 
@@ -409,14 +409,8 @@ def get_compliance_data(supplier: str, report_month: date | None = None) -> list
         session.close()
 
 
-def get_transactions(supplier: str, report_month: date | None = None) -> list[dict]:
-    session = get_session()
-    try:
-        if report_month is None:
-            report_month = get_report_month()
-        end = next_month_start(report_month)
-        query = text("""
-            SELECT
+# One column list for the screen (paged) and the PDF/Excel, so they cannot drift.
+TRANSACTION_COLUMNS = """
                 area, sub_area, origin_country, origin_port,
                 supplier, factory, destination_po, kimball,
                 colour_code, description, size,
@@ -429,14 +423,52 @@ def get_transactions(supplier: str, report_month: date | None = None) -> list[di
                 packaging_status,
                 source_file,
                 carton_type, cbm, density, compliance_status
+"""
+
+
+def get_transactions(supplier: str, report_month: date | None = None) -> list[dict]:
+    session = get_session()
+    try:
+        if report_month is None:
+            report_month = get_report_month()
+        end = next_month_start(report_month)
+        query = text(f"""
+            SELECT
+{TRANSACTION_COLUMNS}
             FROM raw_data
             WHERE supplier = :supplier
               AND handover_date >= :start
               AND handover_date < :end
-            ORDER BY handover_date, updated_date
+            ORDER BY handover_date, updated_date, id
         """)
         rows = session.execute(query, {"supplier": supplier, "start": report_month, "end": end}).fetchall()
         return [dict(row._mapping) for row in rows]
+    finally:
+        session.close()
+
+
+def get_transactions_page(supplier: str, report_month: date, q: str | None, page: int,
+                          page_size: int = 50) -> tuple[list[dict], int]:
+    """One page (1-based, clamped to the last) of the month's transactions, optionally
+    filtered by part-text on PO, kimball, factory or description. Returns (rows, total)."""
+    params = {"supplier": supplier, "start": report_month, "end": next_month_start(report_month)}
+    where = "supplier = :supplier AND handover_date >= :start AND handover_date < :end"
+    if q and q.strip():
+        where += " AND (destination_po ILIKE :q OR kimball ILIKE :q OR factory ILIKE :q OR description ILIKE :q)"
+        params["q"] = like_contains(q.strip())
+    session = get_session()
+    try:
+        total = session.execute(text(f"SELECT COUNT(*) FROM raw_data WHERE {where}"), params).scalar() or 0
+        page = max(1, min(page, -(-total // page_size) or 1))
+        rows = session.execute(text(f"""
+            SELECT
+{TRANSACTION_COLUMNS}
+            FROM raw_data
+            WHERE {where}
+            ORDER BY handover_date, updated_date, id
+            LIMIT :limit OFFSET :offset
+        """), {**params, "limit": page_size, "offset": (page - 1) * page_size}).fetchall()
+        return [dict(row._mapping) for row in rows], total
     finally:
         session.close()
 

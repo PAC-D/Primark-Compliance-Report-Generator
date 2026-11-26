@@ -1,37 +1,46 @@
-"""Re-slice the raw bi-weekly source files in data/ without touching the database.
+"""Data extracts built from raw_data: one workbook of the whole month, one per
+supplier split by region, or a single supplier's month as bytes.
 
-    python -m tps.extract monthly    one workbook with every row for a month
-    python -m tps.extract supplier   one workbook per supplier, split by region
-
-Both write to output/<YYYY_Month>/Supplier_Data/.
+Files go to output/<YYYY_Month>/Supplier_Data/.
 """
 
-import argparse
 import calendar
-import sys
+import zipfile
 from datetime import date
+from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
+from sqlalchemy import text
 
 from tps import config
-from tps.common import ask_report_month, normalise_supplier, report_region, safe_filename
+from tps.common import next_month_start, normalise_supplier, report_region, safe_filename
+from tps.db import get_engine
+from tps.ingest import COLUMN_RENAME
+
+_SOURCE_HEADERS = {
+    **{db: header for header, db in COLUMN_RENAME.items()},
+    "compliance_status": "Compliance Status",
+}
+# Derived or internal columns the team doesn't want in the workbooks.
+_NOT_EXPORTED = ["id", "source_file", "carton_type", "cbm", "density"]
 
 
-def load_month_files(year: int, month: int) -> pd.DataFrame:
-    """Every bi-weekly source file for the month, concatenated."""
-    mon = calendar.month_abbr[month]
-    files = list(config.DATA_DIR.glob(f"*_{year}_{mon}_*.xlsx"))
-    if not files:
-        raise FileNotFoundError(f"No files found for {mon}/{year} in {config.DATA_DIR}")
-    print(f"Found {len(files)} file(s) for {month:02d}/{year}")
-
-    dfs = []
-    for f in files:
-        df = pd.read_excel(f)
-        dfs.append(df)
-        print(f"Loaded: {f.name} ({len(df)} rows)")
-    return pd.concat(dfs, ignore_index=True)
+def month_frame(report_month: date, supplier: str | None = None) -> pd.DataFrame:
+    """raw_data rows handed over in the month (optionally one supplier's), under
+    the source files' own headers plus the derived columns."""
+    sql = "SELECT * FROM raw_data WHERE handover_date >= :start AND handover_date < :end"
+    params = {"start": report_month, "end": next_month_start(report_month)}
+    if supplier is not None:
+        sql += " AND supplier = :supplier"
+        params["supplier"] = supplier
+    df = pd.read_sql(text(sql + " ORDER BY handover_date, updated_date"), get_engine(), params=params)
+    # Excel has no timezones. The TIMESTAMPTZ columns arrive as object dtype when their
+    # rows carry different UTC offsets (summer/winter time), so convert them by name.
+    for col in ("updated_date", "approved_date"):
+        if col in df:
+            df[col] = pd.to_datetime(df[col], utc=True).dt.tz_localize(None)
+    return df.drop(columns=_NOT_EXPORTED, errors="ignore").rename(columns=_SOURCE_HEADERS)
 
 
 def _month_dir(year: int, month: int) -> Path:
@@ -46,59 +55,54 @@ def monthly_path(year: int, month: int) -> Path:
             / f"All_Suppliers_{calendar.month_abbr[month]}_{year}.xlsx")
 
 
+def _rows(year: int, month: int) -> pd.DataFrame:
+    df = month_frame(date(year, month, 1))
+    if df.empty:
+        raise FileNotFoundError(f"No data for {calendar.month_abbr[month]} {year}")
+    return df
+
+
 def extract_monthly(year: int, month: int) -> Path:
     """All suppliers' rows for the month in a single workbook."""
-    combined = load_month_files(year, month)
-    print(f"Total combined rows: {len(combined)}")
-    print(f"Unique suppliers: {combined['Supplier'].nunique()}")
-
+    combined = _rows(year, month)
     _month_dir(year, month)
     output_path = monthly_path(year, month)
     combined.to_excel(output_path, index=False)
-    print(f"\nExtraction complete! Single file saved to: {output_path}")
     return output_path
 
 
 def extract_by_supplier(year: int, month: int) -> Path:
     """One workbook per supplier, under 'BD_Region/' or 'CN_Region/'."""
-    combined = load_month_files(year, month)
+    combined = _rows(year, month)
     combined["Supplier"] = combined["Supplier"].apply(
         lambda x: normalise_supplier(str(x)) if pd.notna(x) else x)
-    print(f"Total combined rows: {len(combined)}")
-    print(f"Unique suppliers: {combined['Supplier'].nunique()}")
 
     base_output = _month_dir(year, month)
     month_name = calendar.month_name[month]
-    counts = {"BD_Region": 0, "CN_Region": 0}
     for supplier, group in combined.groupby("Supplier"):
-        region = report_region(c for c in group["Origin Country"].unique() if pd.notna(c))
-        region_dir = base_output / region
+        region_dir = base_output / report_region(c for c in group["Origin Country"].unique() if pd.notna(c))
         region_dir.mkdir(exist_ok=True)
-
-        filename = f"{safe_filename(supplier)}_{month_name}_{year}.xlsx"
-        group.to_excel(region_dir / filename, index=False)
-        counts[region] += 1
-        print(f"Created: {region}/{filename} ({len(group)} rows)")
-
-    print(f"\nExtraction complete! {counts['BD_Region']} BD Region + "
-          f"{counts['CN_Region']} CN Region files in: {base_output}")
+        group.to_excel(region_dir / f"{safe_filename(supplier)}_{month_name}_{year}.xlsx", index=False)
     return base_output
 
 
-def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("kind", choices=["monthly", "supplier"])
-    args = parser.parse_args(argv)
-
-    report_month = ask_report_month("Data Extraction Month Selection")
-    extract = extract_monthly if args.kind == "monthly" else extract_by_supplier
-    try:
-        extract(report_month.year, report_month.month)
-    except FileNotFoundError as e:
-        print(f"Error: {e}")
-        sys.exit(1)
+def supplier_workbook(supplier: str, report_month: date) -> bytes:
+    """One supplier's month as .xlsx bytes."""
+    buffer = BytesIO()
+    month_frame(report_month, supplier).to_excel(buffer, index=False)
+    return buffer.getvalue()
 
 
-if __name__ == "__main__":
-    main()
+def supplier_data_zip(suppliers: list[str], report_month: date) -> bytes | None:
+    """A zip of each supplier's month workbook (as supplier_workbook); None when none has data."""
+    buffer, added = BytesIO(), 0
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as z:
+        for supplier in dict.fromkeys(suppliers):
+            df = month_frame(report_month, supplier)
+            if df.empty:
+                continue
+            sheet = BytesIO()
+            df.to_excel(sheet, index=False)
+            z.writestr(f"{safe_filename(supplier)}_{report_month:%B_%Y}.xlsx", sheet.getvalue())
+            added += 1
+    return buffer.getvalue() if added else None

@@ -157,3 +157,39 @@ class TestSummaryCountryMonthlyTrend:
         assert country_data["India"] == [70.0, None, 70.0]
         assert country_data["Vietnam"] == [None, 50.0, 60.0]
         assert country_order == ["China", "India", "Vietnam"]
+
+
+class TestTransactionsPage:
+    def _session(self, supplier_session, total, rows):
+        def execute(query, params=None):
+            sql = str(query)
+            res = MagicMock()
+            res.scalar.return_value = total
+            res.fetchall.return_value = rows
+            return res
+        supplier_session.execute.side_effect = execute
+
+    def test_binds_q_limit_offset_and_clamps(self, supplier_session):
+        self._session(supplier_session, 120, [MagicMock(_mapping={"kimball": "K1"})])
+        rows, total = supplier.get_transactions_page("S", date(2026, 8, 1), "50%_x", 99, 50)
+        assert rows == [{"kimball": "K1"}] and total == 120
+        sql, params = supplier_session.execute.call_args[0][0].text, supplier_session.execute.call_args[0][1]
+        assert "LIMIT :limit" in sql and "OFFSET :offset" in sql and "ILIKE :q" in sql
+        assert params["limit"] == 50 and params["offset"] == 100  # page 99 clamped to 3
+        assert params["q"] == "%50\%\_x%" and "50%_x" not in sql
+
+
+    def test_stable_order_and_no_filter_without_q(self, supplier_session):
+        self._session(supplier_session, 0, [])
+        for q in (None, "  "):
+            assert supplier.get_transactions_page("S", date(2026, 8, 1), q, 0) == ([], 0)
+            call = supplier_session.execute.call_args
+            sql = call[0][0].text
+            assert "ILIKE" not in sql and "q" not in call[0][1]
+            assert " ".join(sql.split()).split("ORDER BY")[1].split(" LIMIT")[0].strip() ==                 "handover_date, updated_date, id"
+            assert call[0][1]["offset"] == 0  # page 0 clamps to 1
+
+    def test_get_transactions_orders_by_id_too(self, supplier_session):
+        supplier_session.execute.return_value.fetchall.return_value = []
+        supplier.get_transactions("S", date(2026, 8, 1))
+        assert supplier_session.execute.call_args[0][0].text.rstrip().endswith("updated_date, id")
